@@ -18,6 +18,7 @@ repositories {
 
 dependencies {
     implementation(project(":shared"))
+    implementation(libs.kotlinx.datetime)
 
     // Ktor server
     implementation(libs.ktor.server.core)
