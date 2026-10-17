@@ -77,3 +77,17 @@
 **Контекст:** `POST /v1/tasks` принимает `smartAdd: true` в DTO, но не вызывает парсер. SPEC AC-8 требует, чтобы строка с `^`, `#`, `!` распарсилась на сервере в структурированные поля (due, priority, list, tags).
 **Решение:** В `TaskService.create()` при `request.smartAdd == true` вызывать `SmartAddParser` из shared-модуля. Парсер уже развёрнут в KMP shared (JVM target) и доступен серверу через зависимость `:shared`.
 **Дополнительно:** Список имён пользователя (`listNames`, `tagNames`) загружается из БД перед парсингом для правильного приоритета списка над тегом (SPEC F-2).
+
+### ADR-2.2: Маппинг SmartAddResult → TaskRecord на сервере
+**Контекст:** `SmartAddParser.parse()` возвращает `SmartAddResult` с типами из KMP shared (kotlinx.datetime.Instant, Priority, ParsedRepeat и т.д.). Сервер хранит поля в jOOQ-таблицах с java.time.OffsetDateTime, Integer для priority.
+**Решение:** Конверсия типов:
+- **Даты:** `ParsedDue.instant` → `kotlinx.datetime.Instant.toJavaInstant()` → `java.time.Instant.atZone(zoneId).toOffsetDateTime()`
+- **Priority:** `Priority.level` → `Int?` (null = NONE)
+- **Список:** найденный по `listName` из `lists` пользователя; если не найден — Inbox
+- **Теги:** найденные по `tags` из `tags` пользователя, линкуются через `task_tags`
+- **Repeat:** `ParsedRepeat.rrule` → `rrule`; `ParsedRepeat.mode.name.lowercase()` → `repeatMode`
+- **Время пользователя:** загружается из `users.tz` (дефолт `Europe/Moscow`)
+- **Сегодня:** `Clock.System.todayIn(tz)` → `kotlinx.datetime.LocalDate`
+- **Оценка:** `estimateMin` передаётся напрямую
+- **Заметка:** `note` сохраняется как отдельная запись в `notes` (поле вне scope AC-8, может быть опущено)
+**Альтернативы:** Сериализация/десериализация через JSON (избыточно, медленнее). Прямой вызов из JVM — самый чистый путь, т.к. shared-модуль собран на JVM target.
