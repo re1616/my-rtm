@@ -1,5 +1,6 @@
 package com.taskly.server
 
+import com.taskly.server.plugins.*
 import io.ktor.client.request.*
 import io.ktor.client.statement.*
 import io.ktor.http.*
@@ -11,7 +12,9 @@ class HealthTest {
     @Test
     fun `health endpoint returns 200`() = testApplication {
         application {
-            moduleForTest()
+            configureSerialization()
+            configureStatusPages()
+            configureRouting()
         }
         val response = client.get("/health")
         assertEquals(HttpStatusCode.OK, response.status)

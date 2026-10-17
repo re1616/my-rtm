@@ -16,8 +16,6 @@ repositories {
     mavenCentral()
 }
 
-
-
 dependencies {
     implementation(project(":shared"))
 
@@ -40,6 +38,12 @@ dependencies {
     implementation(libs.postgresql)
     implementation(libs.hikari)
 
+    // Redis
+    implementation(libs.jedis)
+
+    // Password hashing
+    implementation(libs.password4j)
+
     // Logging
     implementation(libs.logback.classic)
 
@@ -50,6 +54,35 @@ dependencies {
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    environment("PGHOST", System.getenv("PGHOST") ?: "localhost")
+    environment("PGPORT", System.getenv("PGPORT") ?: "5432")
+    environment("PGDATABASE", System.getenv("PGDATABASE") ?: "taskly_test")
+    environment("PGUSER", System.getenv("PGUSER") ?: "taskly")
+    environment("PGPASSWORD", System.getenv("PGPASSWORD") ?: "taskly")
+    environment("REDIS_HOST", System.getenv("REDIS_HOST") ?: "localhost")
+    environment("REDIS_PORT", System.getenv("REDIS_PORT") ?: "6379")
+}
+
+// Flyway config at configure time (reads env vars, falls back to defaults)
+val pgHost = providers.environmentVariable("PGHOST").getOrElse("localhost")
+val pgPort = providers.environmentVariable("PGPORT").getOrElse("5432")
+val pgDb = providers.environmentVariable("PGDATABASE").getOrElse("taskly")
+val pgUser = providers.environmentVariable("PGUSER").getOrElse("taskly")
+val pgPass = providers.environmentVariable("PGPASSWORD").getOrElse("taskly")
+
+flyway {
+    url = "jdbc:postgresql://$pgHost:$pgPort/$pgDb"
+    user = pgUser
+    password = pgPass
+    locations = arrayOf("filesystem:${projectDir}/src/main/resources/db/migration")
+}
+
+// Integration test task (acceptance criterion)
+val integrationTest by tasks.registering(Test::class) {
+    group = "verification"
+    description = "Runs integration tests against local PG/Redis"
+    useJUnitPlatform()
+    include("**/IntegrationTest*")
     environment("PGHOST", System.getenv("PGHOST") ?: "localhost")
     environment("PGPORT", System.getenv("PGPORT") ?: "5432")
     environment("PGDATABASE", System.getenv("PGDATABASE") ?: "taskly_test")
