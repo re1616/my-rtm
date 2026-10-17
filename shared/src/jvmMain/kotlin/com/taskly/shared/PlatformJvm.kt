@@ -5,3 +5,5 @@ class JVMPlatform : Platform {
 }
 
 actual fun getPlatform(): Platform = JVMPlatform()
+
+internal actual fun currentEpochMillis(): Long = System.currentTimeMillis()
