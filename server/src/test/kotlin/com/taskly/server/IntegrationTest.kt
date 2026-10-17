@@ -199,6 +199,54 @@ class IntegrationTest {
     }
 
     @Test
+    fun `smart add creates task with parsed fields`() = testApplication {
+        application { moduleForTest() }
+
+        val testEmail = "test-smartadd-${System.currentTimeMillis()}@taskly.test"
+        val registerResp = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$testEmail","password":"Test123!","tz":"Europe/Moscow"}""")
+        }
+        assertEquals(HttpStatusCode.Created, registerResp.status)
+        val auth = json.decodeFromString<AuthResponseMapper>(registerResp.bodyAsText())
+        val token = auth.accessToken
+
+        // Create list "Work"
+        val listResp = client.post("/v1/lists") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(token)
+            setBody("""{"name":"Work"}""")
+        }
+        assertEquals(HttpStatusCode.Created, listResp.status)
+        val listBody = json.decodeFromString<ListResponseMapper>(listResp.bodyAsText())
+
+        // Create tag "test" — needed so tagNames lookup in SmartAddParser has data
+        val tagResp = client.post("/v1/tags") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(token)
+            setBody("""{"name":"test"}""")
+        }
+        assertEquals(HttpStatusCode.Created, tagResp.status)
+
+        // Smart add: ^завтра #Work !1 Тестовая задача (tomorrow, Work list, high priority)
+        val taskResp = client.post("/v1/tasks") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(token)
+            setBody("""{"name":"^завтра #Work !1 Тестовая задача","smartAdd":true}""")
+        }
+        assertEquals(HttpStatusCode.Created, taskResp.status)
+        val task = json.decodeFromString<TaskResponseMapper>(taskResp.bodyAsText())
+
+        // Verify parsed fields
+        assertEquals("Тестовая задача", task.name, "Clean name should have tokens stripped")
+        assertNotNull(task.dueAt, "dueAt should be set from ^завтра")
+        assertTrue(task.dueAt!!.contains("T"), "dueAt should have time component (end of day or specified)")
+        assertEquals(1, task.priority, "priority should be 1 from !1")
+        assertEquals(listBody.id, task.listId, "task should be in Work list from #Work")
+        assertNotNull(task.createdAt)
+    }
+
+    @Test
     fun `recurring task creates next instance on complete`() = testApplication {
         application { moduleForTest() }
 
