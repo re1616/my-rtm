@@ -5,10 +5,14 @@ import com.taskly.server.db.TasksTable
 import com.taskly.server.db.ListsTable
 import com.taskly.server.db.TagsTable
 import com.taskly.server.db.TaskTagsTable
+import com.taskly.server.db.UsersTable
 import com.taskly.server.dto.*
+import com.taskly.shared.smartadd.SmartAddParser
 import org.jooq.Record
 import org.jooq.impl.DSL
 import java.time.OffsetDateTime
+import java.time.ZoneId
+import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.util.*
 
@@ -26,8 +30,58 @@ object TaskService {
         return Database.ctx().transactionResult { config ->
             val tx = DSL.using(config)
 
-            // Resolve list_id: if not provided, find or create the default "Inbox" list
-            val listId = if (request.listId != null) {
+            // Smart Add: parse request.name with SmartAddParser if smartAdd == true
+            var userTz: String? = null  // cached for date conversion below
+            val parsedResult = if (request.smartAdd == true) {
+                val tzStr = tx.select(UsersTable.TZ)
+                    .from(UsersTable.TABLE)
+                    .where(UsersTable.ID.eq(ownerId))
+                    .fetchOneInto(String::class.java) ?: "Europe/Moscow"
+                userTz = tzStr
+                val listNames = tx.select(ListsTable.NAME).from(ListsTable.TABLE)
+                    .where(ListsTable.OWNER_ID.eq(ownerId), ListsTable.DELETED_AT.isNull)
+                    .fetchInto(String::class.java).toSet()
+                val tagNames = tx.select(TagsTable.NAME).from(TagsTable.TABLE)
+                    .where(TagsTable.OWNER_ID.eq(ownerId))
+                    .fetchInto(String::class.java).toSet()
+                val tz = kotlinx.datetime.TimeZone.of(tzStr)
+                val javaToday = java.time.LocalDate.now(java.time.ZoneId.of(tzStr))
+                val today = kotlinx.datetime.LocalDate(javaToday.year, javaToday.monthValue, javaToday.dayOfMonth)
+                SmartAddParser().parse(request.name, today, tz, listNames, tagNames)
+            } else null
+
+            // Effective name: prefer parsed clean name, fall back to original
+            val effectiveName = parsedResult?.name?.takeIf { it.isNotBlank() } ?: request.name
+
+            // Date conversion helper for ParsedDue -> OffsetDateTime
+            val zoneId = userTz?.let { ZoneId.of(it) }
+            fun parsedDueToOffset(parsed: com.taskly.shared.smartadd.ParsedDue): OffsetDateTime =
+                java.time.Instant.ofEpochSecond(parsed.instant.epochSeconds, parsed.instant.nanosecondsOfSecond.toLong())
+                    .atZone(zoneId!!).toOffsetDateTime()
+
+            // Resolve list_id: try parsed listName, then request.listId, then Inbox
+            val parsedListName = parsedResult?.listName  // local var to allow smart cast
+            val listId = if (parsedListName != null) {
+                val found = tx.select(ListsTable.ID).from(ListsTable.TABLE)
+                    .where(ListsTable.OWNER_ID.eq(ownerId), DSL.lower(ListsTable.NAME).eq(parsedListName.lowercase()), ListsTable.DELETED_AT.isNull)
+                    .fetchOneInto(UUID::class.java)
+                if (found != null) {
+                    found
+                } else {
+                    val existing = tx.select(ListsTable.ID)
+                        .from(ListsTable.TABLE)
+                        .where(ListsTable.OWNER_ID.eq(ownerId))
+                        .and(ListsTable.NAME.eq("Inbox"))
+                        .and(ListsTable.DELETED_AT.isNull)
+                        .fetchOneInto(UUID::class.java)
+                    existing ?: tx.insertInto(ListsTable.TABLE)
+                        .set(ListsTable.OWNER_ID, ownerId)
+                        .set(ListsTable.NAME, "Inbox")
+                        .returning(ListsTable.ID)
+                        .fetchOne()!!
+                        .get(ListsTable.ID)
+                }
+            } else if (request.listId != null) {
                 UUID.fromString(request.listId)
             } else {
                 val existing = tx.select(ListsTable.ID)
@@ -36,7 +90,6 @@ object TaskService {
                     .and(ListsTable.NAME.eq("Inbox"))
                     .and(ListsTable.DELETED_AT.isNull)
                     .fetchOneInto(UUID::class.java)
-
                 existing ?: tx.insertInto(ListsTable.TABLE)
                     .set(ListsTable.OWNER_ID, ownerId)
                     .set(ListsTable.NAME, "Inbox")
@@ -50,14 +103,14 @@ object TaskService {
             val record = tx.insertInto(TasksTable.TABLE)
                 .set(TasksTable.OWNER_ID, ownerId)
                 .set(TasksTable.LIST_ID, listId)
-                .set(TasksTable.NAME, request.name)
-                .set(TasksTable.PRIORITY, request.priority)
-                .set(TasksTable.DUE_AT, request.dueAt?.let { OffsetDateTime.parse(it) })
-                .set(TasksTable.DUE_HAS_TIME, request.dueHasTime ?: false)
-                .set(TasksTable.START_AT, request.startAt?.let { OffsetDateTime.parse(it) })
-                .set(TasksTable.ESTIMATE_MIN, request.estimateMin)
-                .set(TasksTable.RRULE, request.rrule)
-                .set(TasksTable.REPEAT_MODE, request.repeatMode)
+                .set(TasksTable.NAME, effectiveName)
+                .set(TasksTable.PRIORITY, parsedResult?.priority?.level ?: request.priority)
+                .set(TasksTable.DUE_AT, parsedResult?.due?.let { parsedDueToOffset(it) } ?: request.dueAt?.let { OffsetDateTime.parse(it) })
+                .set(TasksTable.DUE_HAS_TIME, parsedResult?.due?.hasTime ?: request.dueHasTime ?: false)
+                .set(TasksTable.START_AT, parsedResult?.start?.let { parsedDueToOffset(it) } ?: request.startAt?.let { OffsetDateTime.parse(it) })
+                .set(TasksTable.ESTIMATE_MIN, parsedResult?.estimateMin ?: request.estimateMin)
+                .set(TasksTable.RRULE, parsedResult?.repeat?.rrule ?: request.rrule)
+                .set(TasksTable.REPEAT_MODE, parsedResult?.repeat?.mode?.name?.lowercase() ?: request.repeatMode)
                 .set(TasksTable.URL, request.url)
                 .set(TasksTable.CREATED_AT, now)
                 .set(TasksTable.UPDATED_AT, now)
@@ -70,9 +123,11 @@ object TaskService {
                 )
                 .fetchOne()!!
 
+            // Link tags: from parsedResult if smartAdd, else from request
+            val tagNamesToLink = if (parsedResult != null) parsedResult.tags else (request.tags ?: emptyList())
             val tagIds = mutableListOf<UUID>()
-            if (!request.tags.isNullOrEmpty()) {
-                for (tagName in request.tags) {
+            if (tagNamesToLink.isNotEmpty()) {
+                for (tagName in tagNamesToLink) {
                     val tag = tx.select(TagsTable.ID)
                         .from(TagsTable.TABLE)
                         .where(TagsTable.OWNER_ID.eq(ownerId))
