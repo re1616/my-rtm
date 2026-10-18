@@ -63,6 +63,13 @@ object TasksTable {
     val DELETED_AT = DSL.field(DSL.name("deleted_at"), SQLDataType.TIMESTAMPWITHTIMEZONE)
     val CREATED_AT = DSL.field(DSL.name("created_at"), SQLDataType.TIMESTAMPWITHTIMEZONE.nullable(false).defaultValue(DSL.function("now", SQLDataType.TIMESTAMPWITHTIMEZONE)))
     val UPDATED_AT = DSL.field(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE.nullable(false).defaultValue(DSL.function("now", SQLDataType.TIMESTAMPWITHTIMEZONE)))
+
+    /** All columns — used for RETURNING, since these plain-SQL tables have no generated field list. */
+    val ALL: List<Field<*>> = listOf(
+        ID, OWNER_ID, LIST_ID, PARENT_ID, NAME, PRIORITY, DUE_AT, DUE_HAS_TIME, START_AT, ESTIMATE_MIN,
+        RRULE, REPEAT_MODE, COMPLETED_AT, POSTPONED_COUNT, URL, LOCATION_ID, ASSIGNEE_ID, VERSION,
+        FIELD_VERSIONS, DELETED_AT, CREATED_AT, UPDATED_AT,
+    )
 }
 
 object TagsTable {

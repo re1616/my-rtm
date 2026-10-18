@@ -121,7 +121,7 @@ object SqlRenderer {
         TaskCol.RRULE -> "rrule"
         TaskCol.REPEAT_MODE -> "repeat_mode"
         TaskCol.LOCATION_ID -> "location_id"
-        TaskCol.POSTPONED -> "postponed"
+        TaskCol.POSTPONED -> "postponed_count"
         TaskCol.ESTIMATE_MIN -> "estimate_min"
         TaskCol.CREATED_AT -> "created_at"
     }

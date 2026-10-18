@@ -1,5 +1,6 @@
 package com.taskly.server.sync
 
+import com.taskly.server.Config
 import com.taskly.server.dto.*
 import com.taskly.server.tasks.requireUserId
 import io.ktor.http.*
@@ -12,7 +13,7 @@ fun Route.syncRoutes() {
     post("/v1/sync") {
         val userId = requireUserId(call)
         val request = call.receive<SyncRequest>()
-        val response = SyncService.processOperations(userId, request.ops)
+        val response = SyncService.processOperations(userId, request.ops, Config.sync.maxBatchSize)
         call.respond(HttpStatusCode.OK, response)
     }
 
