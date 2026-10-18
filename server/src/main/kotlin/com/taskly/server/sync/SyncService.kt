@@ -17,6 +17,7 @@ import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.contentOrNull
 import kotlinx.serialization.json.put
 import org.jooq.DSLContext
 import org.jooq.JSONB
@@ -178,10 +179,11 @@ object SyncService {
                     // Same id re-created by its owner with a new op id → merge as an update
                     return mergeTaskUpdate(tx, ownerId, id, op, fields)
                 }
-                val listId = (fields["list_id"] as? JsonPrimitive)?.let {
-                    val candidate = UUID.fromString(it.content)
-                    if (ownsList(tx, ownerId, candidate)) candidate else null
-                } ?: TaskService.inboxId(tx, ownerId)
+                // Unknown, foreign or client-local list ids (e.g. "sys-inbox") fall back to Inbox
+                val listId = (fields["list_id"] as? JsonPrimitive)?.contentOrNull
+                    ?.let { runCatching { UUID.fromString(it) }.getOrNull() }
+                    ?.takeIf { ownsList(tx, ownerId, it) }
+                    ?: TaskService.inboxId(tx, ownerId)
                 val withDefaults = fields - "list_id" + mapOf(
                     "list_id" to JsonPrimitive(listId.toString()),
                     "name" to (fields["name"]?.takeIf { it !is JsonNull } ?: JsonPrimitive("New Task")),
