@@ -10,74 +10,134 @@ import io.ktor.http.*
 import io.ktor.serialization.kotlinx.json.*
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+
+// ── Auth DTOs (mirror server: AuthResponse) ──
 
 @Serializable
 data class AuthResult(
     val accessToken: String,
     val refreshToken: String,
-    val userId: String,
-    val expiresIn: Long
+    val userId: String
 )
 
 @Serializable
-data class OpResult(
+private data class RegisterRequest(
+    val email: String,
+    val password: String
+)
+
+@Serializable
+private data class LoginRequest(
+    val email: String,
+    val password: String
+)
+
+@Serializable
+private data class RefreshTokenRequest(
+    val refreshToken: String
+)
+
+// ── Sync push DTOs (mirror server: SyncRequest / SyncResponse) ──
+
+@Serializable
+data class SyncOpDto(
     val opId: String,
-    val success: Boolean,
+    val scope: String,
+    val entity: String,
+    val entityId: String,
+    val type: String,
+    val fields: JsonObject? = null
+)
+
+@Serializable
+private data class SyncRequestDto(
+    val ops: List<SyncOpDto>
+)
+
+@Serializable
+data class SyncResultDto(
+    val opId: String,
+    val status: String,
+    val entityId: String? = null,
+    val version: Long? = null,
     val error: String? = null
 )
 
 @Serializable
-data class DeltaResult(
-    val entries: List<DeltaEntry>,
-    val nextSeq: Long,
-    val hasMore: Boolean
+data class SyncResponseDto(
+    val results: List<SyncResultDto>,
+    val cursor: String? = null
+)
+
+// ── Sync delta DTOs (mirror server: SyncChangesResponse / change-log) ──
+
+@Serializable
+data class ChangeEntryDto(
+    val seq: Long,
+    val scopeId: String,
+    val entity: String,
+    val entityId: String,
+    val op: String,
+    val payload: JsonElement? = null,
+    val actorId: String,
+    val ts: String
 )
 
 @Serializable
-data class DeltaEntry(
-    val entityType: String,
-    val entityId: String,
-    val operation: String,
-    val data: JsonObject
+data class SyncChangesResponseDto(
+    val changes: List<ChangeEntryDto>,
+    val cursor: String? = null
 )
+
+// ── Client ──
 
 class TasklyApiClient(private val httpClient: HttpClient) {
 
-    suspend fun register(email: String, password: String, name: String): AuthResult {
+    suspend fun register(email: String, password: String): AuthResult {
         val response = httpClient.post("/v1/auth/register") {
-            setBody(mapOf("email" to email, "password" to password, "name" to name))
+            setBody(RegisterRequest(email, password))
         }
         return response.body()
     }
 
     suspend fun login(email: String, password: String): AuthResult {
         val response = httpClient.post("/v1/auth/login") {
-            setBody(mapOf("email" to email, "password" to password))
+            setBody(LoginRequest(email, password))
         }
         return response.body()
     }
 
-    suspend fun refreshToken(refreshToken: String): AuthResult {
+    suspend fun refreshToken(token: String): AuthResult {
         val response = httpClient.post("/v1/auth/refresh") {
-            setBody(mapOf("refreshToken" to refreshToken))
+            setBody(RefreshTokenRequest(token))
         }
         return response.body()
     }
 
-    suspend fun syncPush(ops: List<JsonObject>, accessToken: String): List<OpResult> {
-        val response = httpClient.post("/v1/sync/push") {
+    /** Push sync operations to the server. Returns per-op results. */
+    suspend fun syncPush(ops: List<SyncOpDto>, accessToken: String): List<SyncResultDto> {
+        val response = httpClient.post("/v1/sync") {
             bearerAuth(accessToken)
-            setBody(ops)
+            setBody(SyncRequestDto(ops))
         }
-        return response.body()
+        val wrapped: SyncResponseDto = response.body()
+        return wrapped.results
     }
 
-    suspend fun syncDelta(scope: String, afterSeq: Long, accessToken: String): DeltaResult {
-        val response = httpClient.get("/v1/sync/delta") {
+    /** Pull changes since [afterSeq] in [scope]. */
+    suspend fun syncDelta(
+        scope: String,
+        afterSeq: Long? = null,
+        limit: Int = 100,
+        accessToken: String
+    ): SyncChangesResponseDto {
+        val response = httpClient.get("/v1/sync/changes") {
             bearerAuth(accessToken)
             parameter("scope", scope)
-            parameter("afterSeq", afterSeq.toString())
+            if (afterSeq != null) parameter("after", afterSeq.toString())
+            parameter("limit", limit.toString())
         }
         return response.body()
     }

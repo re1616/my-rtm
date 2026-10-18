@@ -18,9 +18,9 @@ class AuthRepository(
 
     fun getUserId(): String? = currentUserId
 
-    suspend fun register(email: String, password: String, name: String): Result<AuthResult> {
+    suspend fun register(email: String, password: String): Result<AuthResult> {
         return try {
-            val result = apiClient.register(email, password, name)
+            val result = apiClient.register(email, password)
             currentToken = result.accessToken
             currentRefreshToken = result.refreshToken
             currentUserId = result.userId
@@ -51,7 +51,6 @@ class AuthRepository(
             currentUserId = result.userId
             Result.success(result)
         } catch (e: Exception) {
-            // Clear tokens on refresh failure — forces re-login
             currentToken = null
             currentRefreshToken = null
             currentUserId = null

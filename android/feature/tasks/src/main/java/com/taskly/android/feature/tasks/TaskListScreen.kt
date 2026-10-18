@@ -35,7 +35,8 @@ fun TaskListScreen(
     // Collect tasks from the DB when logged in
     LaunchedEffect(isLoggedIn) {
         if (isLoggedIn) {
-            database.taskDao().getAll("").collect { taskList ->
+            val ownerId = authRepository.getUserId() ?: ""
+            database.taskDao().getAll(ownerId).collect { taskList ->
                 tasks = taskList
             }
         }
@@ -168,7 +169,6 @@ private fun LoginForm(
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
-    var name by remember { mutableStateOf("") }
     var isRegister by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
     val coroutineScope = rememberCoroutineScope()
@@ -212,13 +212,10 @@ private fun LoginForm(
 
             if (isRegister) {
                 Spacer(modifier = Modifier.height(12.dp))
-
-                OutlinedTextField(
-                    value = name,
-                    onValueChange = { name = it },
-                    label = { Text("Name") },
-                    singleLine = true,
-                    modifier = Modifier.fillMaxWidth()
+                Text(
+                    text = "A new account will be created with this email.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
 
@@ -238,7 +235,7 @@ private fun LoginForm(
                     coroutineScope.launch {
                         error = null
                         val result = if (isRegister) {
-                            authRepository.register(email.trim(), password, name.trim())
+                            authRepository.register(email.trim(), password)
                         } else {
                             authRepository.login(email.trim(), password)
                         }
@@ -249,7 +246,7 @@ private fun LoginForm(
                     }
                 },
                 modifier = Modifier.fillMaxWidth(),
-                enabled = email.isNotBlank() && password.isNotBlank() && (!isRegister || name.isNotBlank())
+                enabled = email.isNotBlank() && password.isNotBlank()
             ) {
                 Text(if (isRegister) "Register" else "Login")
             }
