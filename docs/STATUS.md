@@ -1,6 +1,6 @@
 # STATUS.md — Taskly (my-rtm)
 
-Последнее обновление: Oct 18 2026 · коммит: 50ecc04 · [CI](https://github.com/re1616/my-rtm/actions)
+Последнее обновление: Oct 18 2026 · коммит: 5dec473 · [CI](https://github.com/re1616/my-rtm/actions/runs/39138324468)
 
 Легенда:
 - ✅ **готово (тест)** — реализовано, покрыто тестом (файл)
@@ -65,16 +65,20 @@
 
 | ID | Статус | Тест / файл |
 | --- | --- | --- |
-| AND-S1 | 🔶 каркас | Entities есть, `@Entity`/`@Dao` не проставлены |
-| AND-S2 | 🔶 каркас | SyncQueueDao есть |
-| AND-S3 | 🔶 каркас | SyncEngine (180 строк) |
-| AND-S4 | 🔶 каркас | AuthRepository + TaskListScreen — stubs |
-| AND-S5 | ❌ не начато | MergeEngine не подключён |
-| AND-S6 | ❌ не начато | Снимок при первом входе |
-| AND-S7 | ❌ не начато | FTS5 |
-| AND-N1 | ❌ не начато | v1.1 |
-| AND-N2–N5 | ❌ не начато | v1.1 |
-| CI (Android) | ❌ не начато | job не добавлен |
+| AND-S1 Room-схема и миграции | ✅ готово (тест) | `core/database/.../MigrationTest.kt` |
+| AND-S2 Изменение + операция в одной транзакции | ✅ готово (тест) | `TaskRepository` (`db.withTransaction`), `OfflineSyncTest` |
+| AND-S3 Отправка очереди | ✅ готово (тест) / 🔶 | Отправка по порядку, удаление только после ack, сохранение при обрыве — `OfflineSyncTest`, `RealServerSyncE2ETest`. Запуск через WorkManager при появлении сети реализован, автотестом не покрыт |
+| AND-S4 Получение изменений | 🔶 каркас | Получение дельт по курсору — тест есть; WebSocket и FCM не сделаны, есть периодическая синхронизация раз в 6 ч |
+| AND-S5 Слияние конфликтов | ❌ не начато | MergeEngine не подключён |
+| AND-S6 Снимок при первом входе | ❌ не начато | Сейчас первый вход = полная дельта с курсора 0 |
+| AND-S7 Офлайн-поиск FTS5 | ❌ не начато | |
+| AND-N1…N5 | ❌ не начато | v1.1 |
+| Hilt (DI) | ✅ готово (сборка) | Граф проверяется при `assembleDebug`; `@HiltAndroidApp`, `@AndroidEntryPoint`, `@HiltViewModel`, `di/AppModule.kt` |
+| Вход и список задач | 🔶 | Экран и ViewModel работают через Room и sync; UI-тестов нет |
+| **E2E офлайн → сервер** | ✅ готово (тест) | `RealServerSyncE2ETest` против запущенного сервера в CI (job «Shared + Server»); CI падает, если тест пропущен |
+| CI (Android) | ✅ | `assembleDebug`, unit-тесты Room и sync, E2E с сервером |
+
+**Фаза 1 Android закрыта** по критериям: Hilt, атомарная запись, SyncEngine с сервером, вход и список, E2E офлайн → сервер в CI.
 
 ## Прочее
 
@@ -83,8 +87,8 @@
 | Shared (61 тестов) | ✅ готово (тест) | `:shared:allTests` — JVM + JS |
 | Server (38 unit + 6 int.) | ✅ готово (тест) | `:server:test` + `:server:integrationTest` |
 | Web (33 теста) | ✅ готово (тест) | `npm test` + `npm run build` |
-| CI Shared+Server+Web | ⚠️ см. Actions | коммит 50ecc04 — исправление мержа |
-| CI Android | ❌ не начато | |
+| CI Shared+Server+Web | ✅ | зелёный на `main` |
+| CI Android | ✅ | см. раздел 4 |
 | COUNT через API | ✅ готово (тест) | `RecurrenceCountIntegrationTest.kt` |
 | DST-политика | ✅ готово (тест) | 4 теста в `shared` + COUNT тест |
 
