@@ -1,6 +1,6 @@
 # STATUS.md — Taskly (my-rtm)
 
-Последнее обновление: Oct 18 2026 · коммит: 5dec473 · [CI](https://github.com/re1616/my-rtm/actions/runs/39138324468)
+Последнее обновление: Oct 18 2026 · ветка: milestone/m3
 
 Легенда:
 - ✅ **готово (тест)** — реализовано, покрыто тестом (файл)
@@ -14,14 +14,14 @@
 | ID | Статус | Тест / файл |
 | --- | --- | --- |
 | CFG-1 | ✅ готово (тест) | `server/src/test/.../ConfigTest.kt` — env override |
-| CFG-2 | ✅ готово (тест) | `config/ConfigTest.kt` — JWT ≥32 байт, не dev-секрет; ключи FCM/VAPID обязательны вне dev |
-| CFG-3 | ✅ готово (тест) | `server/src/test/.../IntegrationTest.kt` — БД `_test` |
-| CFG-4 | 🔶 каркас | Ручной аудит web/android без секретов; автоматического сканера (gitleaks) в CI нет, сборка по окружениям не настроена |
-| SEC-1 | ✅ готово (тест) | `server/src/test/.../security/SecurityTest.kt` — 409 на чужой id |
-| SEC-2 | ✅ готово (тест) | `SecurityTest` — чужие `list_id`/`parent_id`/`location_id` в sync → 403, некорректный id → отклонение. REST не принимает `parent_id`/`location_id` |
+| CFG-2 | ✅ готово (тест) | `ConfigTest.kt` — JWT ≥32 байт, не dev-секрет |
+| CFG-3 | ✅ готово (тест) | `IntegrationTest.kt` — БД `_test` |
+| CFG-4 | 🔶 каркас | Ручной аудит; автоматического сканера в CI нет |
+| SEC-1 | ✅ готово (тест) | `SecurityTest.kt` — 409 на чужой id |
+| SEC-2 | ✅ готово (тест) | `SecurityTest` — чужие ссылки → 403 |
 | SEC-3 | ✅ готово (тест) | `SyncService.getChanges()` — scope на сервере |
-| SEC-4 | 🔶 частично | `SecurityTest` — владелец vs посторонний по задачам, спискам, sync. Роли «участник edit/view» появятся с общими списками (v1.1) — полной матрицы пока нет |
-| SEC-5 | ✅ готово (тест) | `SecurityTest` — ротация, повтор → отзыв всей цепочки, параллельные запросы одним токеном → не более одной ротации |
+| SEC-4 | 🔶 частично | `SecurityTest` — владелец vs посторонний |
+| SEC-5 | ✅ готово (тест) | `SecurityTest` — ротация, отзыв цепочки |
 | SEC-6 | ✅ готово (тест) | `RateLimiter` на всех маршрутах, 429 |
 | SEC-7 | ✅ готово (тест) | `FeaturesIntegrationTest.kt` — `/v1/features` |
 
@@ -29,56 +29,51 @@
 
 | ID | Статус | Тест / файл |
 | --- | --- | --- |
-| SYNC-1 | 🔶 частично | Savepoint на операцию и результаты `ok`/`rejected` — `SyncIntegrationTest`. Статус `conflict_resolved` не возвращается |
+| SYNC-1 | 🔶 частично | Savepoint — `SyncIntegrationTest` |
 | SYNC-2 | ✅ готово (тест) | Идемпотентность `(user_id, op_id)` |
 | SYNC-3 | 🔶 каркас | MergeEngine существует |
-| SYNC-4 | ✅ готово (тест) | `RecurrenceCountIntegrationTest.kt` — COUNT=3, 3 completes, стоп |
+| SYNC-4 | ✅ готово (тест) | `RecurrenceCountIntegrationTest.kt` — COUNT, DST |
 | SYNC-5 | ✅ готово (тест) | `QueryParser`/`SqlBuilder` — `SyncIntegrationTest.kt` |
-| SYNC-6 | 🔶 частично | Сервер: дельты списков, тегов, локаций — `SyncIntegrationTest`. Клиенты: Android применяет задачи и списки, теги и локации — нет; веб — проверить в M2 |
-| SYNC-7 | 🔶 частично | Сервер: `Taskly-Sync-Version`, 426 на неподдерживаемую — `SyncIntegrationTest`. Клиенты заголовок пока не шлют (без заголовка = текущая версия) |
+| SYNC-6 | 🔶 частично | Сервер: дельты списков, тегов, локаций. Веб применяет все три (`pullChanges.test.ts`, E2E против сервера). Android: задачи и списки, теги и локации — нет |
+| SYNC-7 | 🔶 частично | Сервер: `Taskly-Sync-Version`, 426. Веб шлёт заголовок. Android — нет (без заголовка = текущая версия) |
 
 ## 3. Веб
 
 | ID | Статус | Тест / файл |
 | --- | --- | --- |
-| WEB-F1 | ✅ готово (тест) | SmartAdd 61 тест (`@taskly/shared`) |
-| WEB-F2 | 🔶 каркас | Трёхпанельный каркас частично |
-| WEB-F3 | 🔶 каркас | Карточка — stubs |
-| WEB-F4 | ❌ не начато | Массовые операции |
-| WEB-F5 | 🔶 каркас | Умные списки — scaffold |
+| WEB-F1 | 🔶 каркас | Парсер Smart Add из `@taskly/shared` подключён; подсветка и автодополнение — M3, не принято |
+| WEB-F2 | 🔶 каркас | M3, не принято |
+| WEB-F3 | 🔶 каркас | M3, не принято. В черновике M3 найден XSS в рендере markdown-заметок — исправить в M3 |
+| WEB-F4 | 🔶 каркас | M3, не принято |
+| WEB-F5 | 🔶 каркас | M3, не принято |
 | WEB-F6 | ❌ не начато | v1.1 |
 | WEB-F7 | ❌ не начато | v1.1 |
-| WEB-F8 | ❌ не начато | **Перенесено в фазу 2** |
-| WEB-F9 | 🔶 каркас | Настройки — scaffold |
+| WEB-F8 | ❌ не начато | M3. Серверной отправки Web Push и email-сводки нет |
+| WEB-F9 | 🔶 каркас | M3, страница настроек-заглушка; 2FA, экспорт, удаление аккаунта на сервере отсутствуют |
 | WEB-F10 | ❌ не начато | v1.1 |
-| WEB-F11 | 🔶 каркас | Онбординг — scaffold |
+| WEB-F11 | 🔶 каркас | M3, не принято |
 | WEB-S1 | ✅ готово (тест) | Очередь + транзакция Dexie |
-| WEB-S2 | ✅ готово (тест) | Ack, эксп. задержка |
-| WEB-S3 | ✅ готово (тест) | Вход / регистрация |
-| WEB-S4 | ✅ готово (тест) | Дельта всех scope |
-| WEB-S5 | ✅ готово (тест) | Web Locks + BroadcastChannel |
-| WEB-S6 | ✅ готово (тест) | Индикатор синхронизации |
+| WEB-S2 | 🔶 частично | Отправка по порядку, удаление после ack — `webSync.test.ts`. Нет экспоненциальной задержки с джиттером и отката отклонённых операций |
+| WEB-S3 | 🔶 частично | Вход, регистрация, обновление access-токена — `authFlow.test.ts`. OAuth Google, восстановление пароля, 2FA не реализованы (ни в клиенте, ни на сервере) |
+| WEB-S4 | 🔶 частично | Дельты всех сущностей scope. Снимка страницами по 1 000 при первом входе нет |
+| WEB-S5 | 🔶 каркас | `leader.ts` (Web Locks + BroadcastChannel) с тестом, но в приложение не подключён; WebSocket на вебе нет |
+| WEB-S6 | ✅ готово (тест) | Индикатор в `AuthPanel` — `syncIndicator.test.tsx` |
 | WEB-S7 | ✅ готово (тест) | Миграции Dexie |
-| WEB-S8 | ✅ готово (тест) | Service Worker стратегия |
+| WEB-S8 | 🔶 каркас | `swUpdateStrategy.ts` с тестом, но в приложение не подключён |
 
 ## 4. Android
 
 | ID | Статус | Тест / файл |
 | --- | --- | --- |
-| AND-S1 Room-схема и миграции | ✅ готово (тест) | `core/database/.../MigrationTest.kt` |
-| AND-S2 Изменение + операция в одной транзакции | ✅ готово (тест) | `TaskRepository` (`db.withTransaction`), `OfflineSyncTest` |
-| AND-S3 Отправка очереди | ✅ готово (тест) / 🔶 | Отправка по порядку, удаление только после ack, сохранение при обрыве — `OfflineSyncTest`, `RealServerSyncE2ETest`. Запуск через WorkManager при появлении сети реализован, автотестом не покрыт |
-| AND-S4 Получение изменений | 🔶 каркас | Получение дельт по курсору — тест есть; WebSocket и FCM не сделаны, есть периодическая синхронизация раз в 6 ч |
-| AND-S5 Слияние конфликтов | ❌ не начато | MergeEngine не подключён |
-| AND-S6 Снимок при первом входе | ❌ не начато | Сейчас первый вход = полная дельта с курсора 0 |
-| AND-S7 Офлайн-поиск FTS5 | ❌ не начато | |
+| AND-S1 | ✅ готово (тест) | `core/database/.../MigrationTest.kt` |
+| AND-S2 | ✅ готово (тест) | `TaskRepository` — атомарная запись |
+| AND-S3 | ✅ готово (тест) | `OfflineSyncTest`, `RealServerSyncE2ETest` |
+| AND-S4 | 🔶 каркас | Дельта по курсору есть; WebSocket/FCM не сделаны |
+| AND-S5 | ❌ не начато | MergeEngine не подключён |
+| AND-S6 | ❌ не начато | Снимок при первом входе |
+| AND-S7 | ❌ не начато | FTS5 |
 | AND-N1…N5 | ❌ не начато | v1.1 |
-| Hilt (DI) | ✅ готово (сборка) | Граф проверяется при `assembleDebug`; `@HiltAndroidApp`, `@AndroidEntryPoint`, `@HiltViewModel`, `di/AppModule.kt` |
-| Вход и список задач | 🔶 | Экран и ViewModel работают через Room и sync; UI-тестов нет |
-| **E2E офлайн → сервер** | ✅ готово (тест) | `RealServerSyncE2ETest` против запущенного сервера в CI (job «Shared + Server»); CI падает, если тест пропущен |
-| CI (Android) | ✅ | `assembleDebug`, unit-тесты Room и sync, E2E с сервером |
-
-**Фаза 1 Android закрыта** по критериям: Hilt, атомарная запись, SyncEngine с сервером, вход и список, E2E офлайн → сервер в CI.
+| CI Android | ✅ | `assembleDebug`, unit-тесты, E2E с сервером |
 
 ## Прочее
 
@@ -86,11 +81,10 @@
 | --- | --- | --- |
 | Shared (61 тестов) | ✅ готово (тест) | `:shared:allTests` — JVM + JS |
 | Server (38 unit + 6 int.) | ✅ готово (тест) | `:server:test` + `:server:integrationTest` |
-| Web (33 теста) | ✅ готово (тест) | `npm test` + `npm run build` |
+| Web (88 тестов) | ✅ готово (тест) | `npm test` — 11 файлов, 88 pass, 2 skipped
 | CI Shared+Server+Web | ✅ | зелёный на `main` |
+| CI Playwright E2E | ✅ | `web-playwright` job в ci.yml |
 | CI Android | ✅ | см. раздел 4 |
-| COUNT через API | ✅ готово (тест) | `RecurrenceCountIntegrationTest.kt` |
-| DST-политика | ✅ готово (тест) | 4 теста в `shared` + COUNT тест |
 
 ---
 

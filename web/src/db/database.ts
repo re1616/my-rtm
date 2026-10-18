@@ -1,6 +1,6 @@
 // Taskly Web — Dexie Database Setup
 import Dexie, { type Table, type EntityTable } from 'dexie';
-import type { Task, TaskList, TaskTag, SyncOperation } from '../types';
+import type { Task, TaskList, TaskTag, TaskLocation, SyncOperation } from '../types';
 
 export class TasklyDB extends Dexie {
   tasks!: EntityTable<Task, 'id'>;
@@ -8,6 +8,7 @@ export class TasklyDB extends Dexie {
   tags!: EntityTable<TaskTag, 'id'>;
   syncQueue!: EntityTable<SyncOperation, 'opId'>;
   settings!: Table<{ key: string; value: string }, string>;
+  locations!: EntityTable<TaskLocation, 'id'>;
 
   constructor() {
     super('taskly');
@@ -19,7 +20,7 @@ export class TasklyDB extends Dexie {
       syncQueue: 'opId, entityId, status, clientTs',
       settings: 'key',
     });
-    // v4: ordered sync queue (seq). Ops queued by older builds were never sent; keep them in order.
+    // v4: ordered sync queue (seq)
     this.version(4)
       .stores({ syncQueue: 'opId, seq, entityId, status, clientTs' })
       .upgrade(async (tx) => {
@@ -32,6 +33,11 @@ export class TasklyDB extends Dexie {
             if (op.status === 'sent' || op.status === 'sending') op.status = 'pending';
           });
       });
+    // v5: location entities (SYNC-6)
+    this.version(5).stores({
+      locations: 'id, name, createdAt',
+      // tasks/lists/tags/syncQueue/settings unchanged
+    });
   }
 }
 

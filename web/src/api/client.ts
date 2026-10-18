@@ -34,6 +34,7 @@ export async function apiRequest<T>(
   path: string,
   body?: unknown,
   token?: string,
+  extraHeaders?: Record<string, string>,
 ): Promise<T> {
   const fetchImpl = deps.fetchImpl ?? globalThis.fetch.bind(globalThis);
   const controller = new AbortController();
@@ -44,7 +45,8 @@ export async function apiRequest<T>(
       method,
       headers: {
         ...(body !== undefined ? { 'Content-Type': 'application/json' } : {}),
-        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(token ? { 'Authorization': `Bearer ${token}` } : {}),
+        ...(extraHeaders ?? {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
       signal: controller.signal,
