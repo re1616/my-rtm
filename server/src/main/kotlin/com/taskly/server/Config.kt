@@ -2,6 +2,26 @@ package com.taskly.server
 
 import com.typesafe.config.ConfigFactory
 
+/**
+ * CFG-1: Env-var override for config values.
+ * Converts `rateLimit.authBurstSize` → `CONFIG_RATE_LIMIT_AUTH_BURST_SIZE`.
+ * Falls back to the fallback when the env var is not set.
+ */
+private fun envInt(path: String, fallback: Int): Int {
+    val envName = "CONFIG_" + path.replace(".", "_", false).uppercase()
+    return System.getenv(envName)?.parseInt() ?? fallback
+}
+
+private fun envLong(path: String, fallback: Long): Long {
+    val envName = "CONFIG_" + path.replace(".", "_", false).uppercase()
+    return System.getenv(envName)?.parseLong() ?? fallback
+}
+
+private fun envDouble(path: String, fallback: Double): Double {
+    val envName = "CONFIG_" + path.replace(".", "_", false).uppercase()
+    return System.getenv(envName)?.parseDouble() ?? fallback
+}
+
 // Configuration data classes — maps from application.conf `taskly` block
 data class DatabaseConfig(
     val host: String,
@@ -71,10 +91,10 @@ object Config {
     )
 
     val rateLimit = RateLimitConfig(
-        tokensPerSecond = config.getInt("rateLimit.tokensPerSecond"),
-        burstSize = config.getInt("rateLimit.burstSize"),
-        authTokensPerSecond = config.getDouble("rateLimit.authTokensPerSecond"),
-        authBurstSize = config.getInt("rateLimit.authBurstSize"),
+        tokensPerSecond = env("rateLimit.tokensPerSecond", 1000L),
+        burstSize = env("rateLimit.burstSize", 300),
+        authTokensPerSecond = env("rateLimit.authTokensPerSecond", 100.0),
+        authBurstSize = env("rateLimit.authBurstSize", 50),
     )
 }
 /**
