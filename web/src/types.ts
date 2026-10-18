@@ -117,7 +117,12 @@ export type SystemView = 'inbox' | 'today' | 'overdue' | 'week' | 'all' | 'compl
 export type AppView =
   | { kind: 'system'; view: SystemView }
   | { kind: 'list'; listId: string }
-  | { kind: 'smart'; listId: string };
+  | { kind: 'smart'; listId: string }
+  | { kind: 'task-detail'; taskId: string }
+  | { kind: 'settings' }
+  | { kind: 'onboarding' }
+  | { kind: 'smart-lists' }
+  | { kind: 'help' };
 
 // ── UI State ──
 export interface UIState {
