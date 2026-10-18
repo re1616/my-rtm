@@ -203,6 +203,10 @@ jobs:
             sleep 2
           done
           echo "server did not start"; tail -50 server-run.log; exit 1
+      - name: Install npm dependencies
+        working-directory: web
+        shell: bash
+        run: npm ci
       - name: Start web dev server
         working-directory: web
         shell: bash
