@@ -91,6 +91,32 @@ class IntegrationTest {
     }
 
     @Test
+    fun `account is locked after 5 failed logins, successful login resets the counter`() = testApplication {
+        application { moduleForTest() }
+        val email = "lock-${System.nanoTime()}@taskly.test"
+        val password = "Correct123!"
+        suspend fun login(pw: String) = client.post("/v1/auth/login") {
+            contentType(ContentType.Application.Json)
+            setBody(json.encodeToString(LoginRequestMapper(email, pw)))
+        }.status
+
+        assertEquals(HttpStatusCode.Created, client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody(json.encodeToString(RegisterRequestMapper(email, password)))
+        }.status)
+
+        // Successful login works and resets earlier failures.
+        repeat(4) { assertEquals(HttpStatusCode.Unauthorized, login("wrong")) }
+        assertEquals(HttpStatusCode.OK, login(password))
+        repeat(4) { assertEquals(HttpStatusCode.Unauthorized, login("wrong")) }
+        assertEquals(HttpStatusCode.OK, login(password), "4 failures after a reset must not lock the account")
+
+        // Fifth consecutive failure locks the account, even for the right password.
+        repeat(5) { assertEquals(HttpStatusCode.Unauthorized, login("wrong")) }
+        assertEquals(HttpStatusCode.TooManyRequests, login(password))
+    }
+
+    @Test
     fun `create task and search`() = testApplication {
         application { moduleForTest() }
 

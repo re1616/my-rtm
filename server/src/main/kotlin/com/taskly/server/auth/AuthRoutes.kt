@@ -12,11 +12,6 @@ import io.ktor.server.request.*
 
 fun Route.authRoutes() {
     post("/v1/auth/register") {
-        // SEC-6: per-IP rate limit on register
-        if (!RateLimiter.check("auth:register")) {
-            throw RateLimitExceededException("Too many registration attempts. Try again later.")
-        }
-
         val request = call.receive<RegisterRequest>()
         try {
             val response = AuthService.register(request)
@@ -27,37 +22,24 @@ fun Route.authRoutes() {
     }
 
     post("/v1/auth/login") {
-        // SEC-6: per-IP throttle
-        if (!RateLimiter.check("auth:login")) {
-            throw RateLimitExceededException("Too many requests. Try again later.")
-        }
-
         val request = call.receive<LoginRequest>()
 
-        // SEC-6: per-account rate limit (5 failed attempts)
-        val accountKey = "login:${request.email.lowercase().trim()}"
-        if (RateLimiter.checkAccountLimit(accountKey)) {
+        // SEC-6: per-account lock after repeated failed attempts (per-IP limit: RateLimitPlugin)
+        if (RateLimiter.isAccountLocked(request.email)) {
             throw RateLimitExceededException("Too many failed login attempts. Try again later.")
         }
 
         try {
             val response = AuthService.login(request)
-            // Clear failed attempts on success
-            RateLimiter.clearAccountLimit(accountKey)
+            RateLimiter.clearFailedLogins(request.email)
             call.respond(HttpStatusCode.OK, response)
         } catch (e: IllegalArgumentException) {
-            // Record failed attempt
-            RateLimiter.recordFailedAttempt(accountKey)
+            RateLimiter.recordFailedLogin(request.email)
             call.respond(HttpStatusCode.Unauthorized, ErrorResponse(error = e.message ?: "Login failed"))
         }
     }
 
     post("/v1/auth/refresh") {
-        // SEC-6: per-IP throttle
-        if (!RateLimiter.check("auth:refresh")) {
-            throw RateLimitExceededException("Too many requests. Try again later.")
-        }
-
         val request = call.receive<RefreshTokenRequest>()
         try {
             val response = AuthService.refreshToken(request.refreshToken)

@@ -106,6 +106,22 @@ object RedisService {
         }
     }
 
+    /** Current integer value of [key], or 0 when absent. */
+    fun getCount(key: String): Long =
+        getPool().resource.use { it.get(key)?.toLongOrNull() ?: 0L }
+
+    /** Atomically increments [key]; sets [ttlSeconds] on the first increment of a window. */
+    fun incrementWithTtl(key: String, ttlSeconds: Long): Long =
+        getPool().resource.use { jedis ->
+            val n = jedis.incr(key)
+            if (n == 1L) jedis.expire(key, ttlSeconds)
+            n
+        }
+
+    fun delete(key: String) {
+        getPool().resource.use { it.del(key) }
+    }
+
     fun close() {
         pool?.close()
         pool = null

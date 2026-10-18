@@ -354,6 +354,11 @@ object TaskService {
             logger.warn("Task {} has an invalid rrule '{}', no next instance created", parent.get(TasksTable.ID), rruleStr)
             return null
         }
+        // COUNT (RFC 5545): each instance stores the number of occurrences left in the series,
+        // itself included. The instance with COUNT=1 is the last one; the next gets COUNT-1.
+        val count = rule.count
+        if (count != null && count <= 1) return null // series ended (COUNT)
+        val nextRruleStr = if (count != null) rule.copy(count = count - 1).toRruleString() else rruleStr
         val mode = if (parent.get(TasksTable.REPEAT_MODE).equals("after", ignoreCase = true)) RepeatMode.AFTER else RepeatMode.EVERY
         val zone = ZoneId.of(userTz(tx, ownerId))
 
@@ -380,7 +385,7 @@ object TaskService {
             .set(TasksTable.DUE_HAS_TIME, parent.get(TasksTable.DUE_HAS_TIME))
             .set(TasksTable.START_AT, nextStart)
             .set(TasksTable.ESTIMATE_MIN, parent.get(TasksTable.ESTIMATE_MIN))
-            .set(TasksTable.RRULE, rruleStr)
+            .set(TasksTable.RRULE, nextRruleStr)
             .set(TasksTable.REPEAT_MODE, parent.get(TasksTable.REPEAT_MODE) ?: "every")
             .set(TasksTable.URL, parent.get(TasksTable.URL))
             .set(TasksTable.LOCATION_ID, parent.get(TasksTable.LOCATION_ID))

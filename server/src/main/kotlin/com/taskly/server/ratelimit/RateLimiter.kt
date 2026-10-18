@@ -10,7 +10,6 @@ import io.ktor.server.request.path
 import kotlinx.coroutines.delay
 import org.slf4j.LoggerFactory
 import java.security.MessageDigest
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Redis-based token bucket rate limiter (SPEC F-8).
@@ -80,23 +79,30 @@ object RateLimiter {
         return "api:$who" to false
     }
 
-    // ── auth-rate-limit helpers (called from AuthRoutes) ──
+    // ── SEC-6: per-account failed-login limit ──
+    // Per-IP throttling of /v1/auth/* is done by [RateLimitPlugin]. On top of that, an account
+    // is locked for [FAILED_LOGIN_WINDOW_SECONDS] after [MAX_FAILED_LOGINS] failed attempts.
+    // Only failures count; a successful login resets the counter. Redis outage fails open.
 
-    private val loginAttempts = ConcurrentHashMap<String, Int>()
+    const val MAX_FAILED_LOGINS = 5
+    const val FAILED_LOGIN_WINDOW_SECONDS = 15 * 60L
 
-    /** Auth-specific: check + increment the attempt counter for [accountKey]. */
-    fun checkAccountLimit(accountKey: String): Boolean {
-        val n = loginAttempts.merge(accountKey, 1, Int::plus) ?: 1
-        return checkAuth(accountKey)
+    private fun failedKey(email: String) = "login_failed:" + sha256(email.lowercase().trim())
+
+    /** True when the account has reached the failed-attempt limit and login must be refused. */
+    fun isAccountLocked(email: String): Boolean = try {
+        RedisService.getCount(failedKey(email)) >= MAX_FAILED_LOGINS
+    } catch (e: Exception) {
+        logFailOpen(e); false
     }
 
-    /** Auth-specific: clear attempt counter (successful login). */
-    fun clearAccountLimit(accountKey: String) {
-        loginAttempts.remove(accountKey)
+    fun recordFailedLogin(email: String) {
+        try { RedisService.incrementWithTtl(failedKey(email), FAILED_LOGIN_WINDOW_SECONDS) } catch (e: Exception) { logFailOpen(e) }
     }
 
-    /** Auth-specific: record a failed attempt (already counted by checkAccountLimit). */
-    fun recordFailedAttempt(accountKey: String) { /* counted in checkAccountLimit */ }
+    fun clearFailedLogins(email: String) {
+        try { RedisService.delete(failedKey(email)) } catch (e: Exception) { logFailOpen(e) }
+    }
 
     internal fun logFailOpen(e: Exception) {
         logger.warn("Rate limiter unavailable, allowing request: {}", e.message)
