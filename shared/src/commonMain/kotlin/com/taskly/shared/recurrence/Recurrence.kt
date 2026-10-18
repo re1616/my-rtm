@@ -15,6 +15,16 @@ import kotlinx.datetime.toInstant
  * Расчёт повторов (SPEC F-4): nextOccurrence для RRULE плюс режимы every/after.
  * Работает на датах; для времени с учётом часового пояса — [zonedInstant]
  * (DST-кейс: стена-часы сохраняются, UTC-смещение меняется).
+ *
+ * COUNT-семантика (RFC 5545): серия завершается после N экземпляров.
+ * Функции [nextOccurrence] и [nextInstanceDate] имеют перегрузки с
+ * [occurrenceIndex] для явного указания порядкового номера последнего экземпляра.
+ *
+ * DST-политика (SYNC-4):
+ * - Весенний переход (gap): несуществующее локальное время сдвигается вперёд
+ *   на 1 час (следующее существующее время) — см. [zonedInstantResolve].
+ * - Осенний переход (overlap): неоднозначное время — берётся первое вхождение
+ *   (то, что до перевода стрелок).
  */
 object Recurrence {
 
@@ -48,14 +58,28 @@ object Recurrence {
     // ---------- Основной движок ----------
 
     /**
-     * Следующий экземпляр серии строго после [after] (anchor — последняя плановая дата).
-     * Учитывает UNTIL; COUNT обрабатывается сервером.
+     * Следующий экземпляр серии строго после [after].
+     * Учитывает UNTIL; COUNT НЕ учитывается — используйте перегрузку
+     * с [occurrenceIndex] для проверки COUNT.
      */
     fun nextOccurrence(rule: RRule, after: LocalDate): LocalDate? =
-        nextOccurrenceInternal(rule, after, null)
+        nextOccurrenceInternal(rule, after, null, null)
+
+    /**
+     * Следующий экземпляр серии строго после [after] с учётом COUNT.
+     * [occurrenceIndex] — 0-based индекс даты [after] в серии.
+     * Если `occurrenceIndex >= count - 1`, возвращается null (серия завершена).
+     */
+    fun nextOccurrence(rule: RRule, after: LocalDate, occurrenceIndex: Int): LocalDate? =
+        nextOccurrenceInternal(rule, after, null, occurrenceIndex)
 
     /** Внутренняя: с сохранением [seriesDay] для plain-monthly/yearly (день-якорь серии). */
-    private fun nextOccurrenceInternal(rule: RRule, after: LocalDate, seriesDay: Int?): LocalDate? {
+    private fun nextOccurrenceInternal(
+        rule: RRule,
+        after: LocalDate,
+        seriesDay: Int?,
+        occurrenceIndex: Int?,
+    ): LocalDate? {
         val next = when (rule.freq) {
             RecurrenceFreq.DAILY -> nextDaily(rule, after)
             RecurrenceFreq.WEEKLY -> nextWeekly(rule, after)
@@ -63,19 +87,50 @@ object Recurrence {
             RecurrenceFreq.YEARLY -> nextYearly(rule, after, seriesDay)
         }
         if (next == null) return null
+        // COUNT-check: если [after] — последний разрешённый экземпляр, дальше ничего нет
+        if (occurrenceIndex != null) {
+            rule.count?.let { if (occurrenceIndex >= it - 1) return null }
+        }
         rule.until?.let { if (next > it) return null }
         return next
     }
 
-    /** Первые [limit] экземпляров серии >= [from]. */
+    /**
+     * Первые [limit] экземпляров серии >= [from].
+     * Если в RRULE указан COUNT, берётся min(limit, count).
+     */
     fun occurrences(rule: RRule, from: LocalDate, limit: Int): List<LocalDate> {
+        val effectiveLimit = minOf(rule.count ?: Int.MAX_VALUE, limit)
+        return occurrencesInternal(rule, from, effectiveLimit)
+    }
+
+    /**
+     * Все экземпляры серии >= [from] в пределах COUNT из RRULE.
+     * Если COUNT не указан, возвращается пустой список (неограниченная серия —
+     * используйте [occurrences] с явным limit).
+     */
+    fun occurrences(rule: RRule, from: LocalDate): List<LocalDate> {
+        val count = rule.count ?: return emptyList()
+        return occurrencesInternal(rule, from, count)
+    }
+
+    private fun occurrencesInternal(rule: RRule, from: LocalDate, effectiveLimit: Int): List<LocalDate> {
         val result = mutableListOf<LocalDate>()
-        val first = if (matchesInstance(rule, from)) from else nextOccurrenceInternal(rule, LocalDate.fromEpochDays(from.toEpochDays() - 1), null)
+        // occurrenceIndex для from-1 равен -1: before first -> разрешаем переход к первой
+        val first = if (matchesInstance(rule, from)) {
+            from
+        } else {
+            nextOccurrenceInternal(
+                rule, LocalDate.fromEpochDays(from.toEpochDays() - 1), null, -1,
+            )
+        }
         val seriesDay = from.dayOfMonth
         var cur = first
-        while (cur != null && result.size < limit) {
+        var idx = 0
+        while (cur != null && result.size < effectiveLimit) {
             result.add(cur)
-            cur = nextOccurrenceInternal(rule, cur, seriesDay)
+            cur = nextOccurrenceInternal(rule, cur, seriesDay, idx)
+            idx++
         }
         return result
     }
@@ -84,12 +139,35 @@ object Recurrence {
      * Дата следующего экземпляра по режиму:
      * - EVERY — от плановой даты [anchor] (последний экземпляр);
      * - AFTER — сдвиг от даты выполнения [completedAt] на interval*FREQ (RTM-семантика «after N»).
+     *
+     * COUNT не проверяется — используйте перегрузку с [occurrenceIndex].
      */
     fun nextInstanceDate(rule: RRule, mode: RepeatMode, anchor: LocalDate?, completedAt: LocalDate?): LocalDate? {
         return when (mode) {
             RepeatMode.EVERY -> anchor?.let { nextOccurrence(rule, it) }
             RepeatMode.AFTER -> {
                 val base = completedAt ?: anchor ?: return null
+                shiftByFreq(base, rule)
+            }
+        }
+    }
+
+    /**
+     * Дата следующего экземпляра с учётом COUNT.
+     * [occurrenceIndex] — 0-based индекс [anchor] (EVERY) или [completedAt] (AFTER) в серии.
+     */
+    fun nextInstanceDate(
+        rule: RRule,
+        mode: RepeatMode,
+        anchor: LocalDate?,
+        completedAt: LocalDate?,
+        occurrenceIndex: Int,
+    ): LocalDate? {
+        return when (mode) {
+            RepeatMode.EVERY -> anchor?.let { nextOccurrence(rule, it, occurrenceIndex) }
+            RepeatMode.AFTER -> {
+                val base = completedAt ?: anchor ?: return null
+                if (rule.count != null && occurrenceIndex >= rule.count - 1) return null
                 shiftByFreq(base, rule)
             }
         }
@@ -106,6 +184,25 @@ object Recurrence {
     /** Инстант «дата + местное время» в поясе [tz] — для DST-проверок и сервера. */
     fun zonedInstant(date: LocalDate, time: LocalTime, tz: TimeZone): Instant =
         LocalDateTime(date, time).toInstant(tz)
+
+    /**
+     * Инстант «дата + местное время» с разрешением DST-перехода.
+     * - **Spring-forward (gap):** если время не существует (например, 02:30 при
+     *   переводе 02:00→03:00), сдвигается на +1 час до существующего времени.
+     * - **Fall-back (overlap):** kotlinx.datetime по умолчанию выбирает первое
+     *   вхождение (до перевода), что соответствует политике SYNC-4.
+     */
+    fun zonedInstantResolve(date: LocalDate, time: LocalTime, tz: TimeZone): Instant {
+        val ldt = LocalDateTime(date, time)
+        return try {
+            ldt.toInstant(tz)
+        } catch (e: IllegalArgumentException) {
+            // Spring-forward gap: продвигаем на 1 час (стандартный размер gap)
+            val nextHour = if (time.hour < 23) time.hour + 1 else 0
+            val nextDate = if (time.hour < 23) date else addDays(date, 1)
+            LocalDateTime(nextDate, LocalTime(nextHour, time.minute, time.second)).toInstant(tz)
+        }
+    }
 
     // ---------- Почастотные генераторы ----------
 

@@ -265,7 +265,196 @@ class RecurrenceTest {
         assertEquals(24 * 3_600_000L, t2.toEpochMilliseconds() - t1.toEpochMilliseconds())
     }
 
-    // ------------------------------------------------------------------ helpers ----
+    // ------------------------------------------------------------------ COUNT ----
+
+    @Test
+    fun countThreeWeekly() {
+        // COUNT=3, еженедельно: ровно 3 даты
+        val r = RRule.parse("FREQ=WEEKLY;COUNT=3")!!
+        val dates = Recurrence.occurrences(r, LocalDate(2026, 10, 17))
+        assertEquals(3, dates.size)
+        assertEquals(
+            listOf(LocalDate(2026, 10, 17), LocalDate(2026, 10, 24), LocalDate(2026, 10, 31)),
+            dates,
+        )
+    }
+
+    @Test
+    fun countOne() {
+        // COUNT=1: только начальная дата
+        val r = RRule.parse("FREQ=DAILY;COUNT=1")!!
+        assertEquals(
+            listOf(LocalDate(2026, 10, 17)),
+            Recurrence.occurrences(r, LocalDate(2026, 10, 17)),
+        )
+    }
+
+    @Test
+    fun countWithInterval() {
+        // Каждые 2 недели, COUNT=2
+        val r = RRule.parse("FREQ=WEEKLY;INTERVAL=2;COUNT=2")!!
+        assertEquals(
+            listOf(LocalDate(2026, 10, 17), LocalDate(2026, 10, 31)),
+            Recurrence.occurrences(r, LocalDate(2026, 10, 17)),
+        )
+    }
+
+    @Test
+    fun countWithByDay() {
+        // Пн/Ср/Пт, COUNT=4: 4 даты
+        val r = RRule.parse("FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=4")!!
+        assertEquals(
+            listOf(
+                LocalDate(2026, 10, 19),
+                LocalDate(2026, 10, 21),
+                LocalDate(2026, 10, 23),
+                LocalDate(2026, 10, 26),
+            ),
+            Recurrence.occurrences(r, LocalDate(2026, 10, 17)),
+        )
+    }
+
+    @Test
+    fun countWithUntil() {
+        // COUNT=52, но UNTIL раньше: останавливается на UNTIL
+        val r = RRule.parse("FREQ=WEEKLY;COUNT=52;UNTIL=20261115")!!
+        val from = LocalDate(2026, 10, 17)
+        val dates = Recurrence.occurrences(r, from, 100)
+        // 17.10 → 24.10 → 31.10 → 7.11 → 14.11 — до UNTIL=15.11
+        assertEquals(5, dates.size)
+        assertEquals(LocalDate(2026, 11, 14), dates.last())
+    }
+
+    @Test
+    fun countExplicitLimit() {
+        // occurrences с явным limit меньше COUNT: побеждает limit
+        val r = RRule.parse("FREQ=DAILY;COUNT=10")!!
+        assertEquals(3, Recurrence.occurrences(r, LocalDate(2026, 10, 17), 3).size)
+    }
+
+    @Test
+    fun countNextOccurrenceWithIndex() {
+        // Пошаговый обход с occurrenceIndex
+        val r = RRule.parse("FREQ=WEEKLY;COUNT=3")!!
+        val first = LocalDate(2026, 10, 17)
+        val second = Recurrence.nextOccurrence(r, first, 0) // after=index0 → получаем index1
+        assertEquals(LocalDate(2026, 10, 24), second)
+        val third = Recurrence.nextOccurrence(r, second!!, 1) // after=index1 → получаем index2
+        assertEquals(LocalDate(2026, 10, 31), third)
+        assertNull(Recurrence.nextOccurrence(r, third!!, 2)) // after=index2 → null (COUNT exhausted)
+    }
+
+    @Test
+    fun countNextInstanceDateEvery() {
+        // EVERY с COUNT: 3-й вызов возвращает null
+        val r = RRule.parse("FREQ=WEEKLY;COUNT=3")!!
+        val first = LocalDate(2026, 10, 17)
+        val second = Recurrence.nextInstanceDate(r, RepeatMode.EVERY, first, null, 0)
+        assertEquals(LocalDate(2026, 10, 24), second)
+        val third = Recurrence.nextInstanceDate(r, RepeatMode.EVERY, second, null, 1)
+        assertEquals(LocalDate(2026, 10, 31), third)
+        assertNull(Recurrence.nextInstanceDate(r, RepeatMode.EVERY, third, null, 2))
+    }
+
+    @Test
+    fun countNoCountReturnsEmpty() {
+        // occurrences(rule, from) без COUNT → emptyList
+        val r = RRule.parse("FREQ=WEEKLY")!! // нет COUNT
+        assertEquals(emptyList<LocalDate>(), Recurrence.occurrences(r, LocalDate(2026, 10, 17)))
+    }
+
+    @Test
+    fun rruleParseCount() {
+        val r = RRule.parse("FREQ=WEEKLY;COUNT=5")
+        assertNotNull(r)
+        assertEquals(5, r!!.count)
+        assertEquals("FREQ=WEEKLY;COUNT=5", r.toRruleString())
+    }
+
+    @Test
+    fun rruleParseCountInvalid() {
+        // Неположительный COUNT → count=null (RRule валиден, парсер отбрасывает невалидный COUNT)
+        val r = RRule.parse("FREQ=WEEKLY;COUNT=0")
+        assertNotNull(r)
+        assertNull(r!!.count)
+        assertEquals("FREQ=WEEKLY", r.toRruleString())
+        val r2 = RRule.parse("FREQ=WEEKLY;COUNT=-1")
+        assertNotNull(r2)
+        assertNull(r2!!.count)
+    }
+
+    // ------------------------------------------------------------------ DST ----
+
+    @Test
+    fun dstSpringForwardResolve() {
+        // JVM-only: JS не имеет IANA tzdb
+        val isJvm = com.taskly.shared.getPlatform().name.startsWith("JVM")
+        if (!isJvm) return
+        val berlin = TimeZone.of("Europe/Berlin")
+        // 2025-03-30 02:30 — не существует (02:00→03:00)
+        val resolved = Recurrence.zonedInstantResolve(LocalDate(2025, 3, 30), LocalTime(2, 30), berlin)
+        // Должен сдвинуться до 03:30 (первый существующий час после gap)
+        val expected = Recurrence.zonedInstant(LocalDate(2025, 3, 30), LocalTime(3, 30), berlin)
+        assertEquals(expected, resolved)
+    }
+
+    @Test
+    fun dstFallBackOverlap() {
+        val isJvm = com.taskly.shared.getPlatform().name.startsWith("JVM")
+        if (!isJvm) return
+        val berlin = TimeZone.of("Europe/Berlin")
+        // 2025-10-26 02:30 — неоднозначное время (CEST 02:30 до перевода,
+        // затем CET 02:30 после перевода 03:00→02:00)
+        // kotlinx.datetime берёт первое вхождение (CEST — до перевода)
+        val overlapping = Recurrence.zonedInstant(LocalDate(2025, 10, 26), LocalTime(2, 30), berlin)
+        // Проверяем, что это CEST (UTC+02), а не CET (UTC+01):
+        // 25.10 02:30 CEST = UTC 00:30; 26.10 02:30 CEST (первое) = UTC 00:30
+        // разница ровно 24h
+        val cest = Recurrence.zonedInstant(LocalDate(2025, 10, 25), LocalTime(2, 30), berlin)
+        assertEquals(24 * 3_600_000L, overlapping.toEpochMilliseconds() - cest.toEpochMilliseconds())
+    }
+
+    @Test
+    fun dstSpringForwardDailySequence() {
+        val isJvm = com.taskly.shared.getPlatform().name.startsWith("JVM")
+        if (!isJvm) return
+        val berlin = TimeZone.of("Europe/Berlin")
+        val daily = RRule.parse("FREQ=DAILY")!!
+        // 28.03 → 29.03 → 30.03 (переход) → 31.03
+        val date1 = LocalDate(2025, 3, 28)
+        val date2 = Recurrence.nextOccurrence(daily, date1)!!
+        val date3 = Recurrence.nextOccurrence(daily, date2)!!
+        val date4 = Recurrence.nextOccurrence(daily, date3)!!
+        assertEquals(LocalDate(2025, 3, 29), date2)
+        assertEquals(LocalDate(2025, 3, 30), date3) // spring-forward — дата существует
+        assertEquals(LocalDate(2025, 3, 31), date4)
+        // UTC-разница: 28.03→29.03 = 24h, 29.03→30.03 = 23h (потерянный час)
+        val t1 = Recurrence.zonedInstant(date1, LocalTime(12, 0), berlin)
+        val t2 = Recurrence.zonedInstant(date2, LocalTime(12, 0), berlin)
+        val t3 = Recurrence.zonedInstant(date3, LocalTime(12, 0), berlin)
+        assertEquals(24 * 3_600_000L, t2.toEpochMilliseconds() - t1.toEpochMilliseconds())
+        assertEquals(23 * 3_600_000L, t3.toEpochMilliseconds() - t2.toEpochMilliseconds())
+    }
+
+    @Test
+    fun dstFallBackDailySequence() {
+        val isJvm = com.taskly.shared.getPlatform().name.startsWith("JVM")
+        if (!isJvm) return
+        val berlin = TimeZone.of("Europe/Berlin")
+        val daily = RRule.parse("FREQ=DAILY")!!
+        // 25.10 → 26.10 (переход) → 27.10
+        val date1 = LocalDate(2025, 10, 25)
+        val date2 = Recurrence.nextOccurrence(daily, date1)!!
+        val date3 = Recurrence.nextOccurrence(daily, date2)!!
+        assertEquals(LocalDate(2025, 10, 26), date2)
+        assertEquals(LocalDate(2025, 10, 27), date3)
+        // UTC-разница: 25.10→26.10 = 25h (лишний час при падении)
+        val t1 = Recurrence.zonedInstant(date1, LocalTime(12, 0), berlin)
+        val t2 = Recurrence.zonedInstant(date2, LocalTime(12, 0), berlin)
+        val t3 = Recurrence.zonedInstant(date3, LocalTime(12, 0), berlin)
+        assertEquals(25 * 3_600_000L, t2.toEpochMilliseconds() - t1.toEpochMilliseconds())
+        assertEquals(24 * 3_600_000L, t3.toEpochMilliseconds() - t2.toEpochMilliseconds())
+    }
 
     private fun LocalDate.plusDays(n: Long): LocalDate = LocalDate.fromEpochDays(this.toEpochDays() + n)
 }
