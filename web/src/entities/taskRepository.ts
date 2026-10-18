@@ -352,8 +352,14 @@ export async function createSmartList(name: string, filterQuery: string): Promis
     const all = await db.lists.toArray();
     const maxOrder = all.reduce((max, l) => Math.max(max, l.sortOrder), 0);
     const list: TaskList = {
-      id: uuid(), name, isSmart: true, filterQuery,
-      sortOrder: maxOrder + 1, archived: false, createdAt: now, updatedAt: now,
+      id: uuid(),
+      name,
+      isSmart: true,
+      filterQuery,
+      sortOrder: maxOrder + 1,
+      archived: false,
+      createdAt: now,
+      updatedAt: now,
     };
     await db.lists.add(list);
     await enqueue(buildOp('list', list.id, 'create', { name, isSmart: true, filterQuery, sortOrder: list.sortOrder }));
@@ -368,16 +374,19 @@ export async function getSmartLists(): Promise<TaskList[]> {
 }
 
 export async function deleteSmartList(id: string): Promise<void> {
-  await getDb().lists.update(id, { archived: true, updatedAt: new Date().toISOString() });
+  const db = getDb();
+  await db.lists.update(id, { archived: true, updatedAt: new Date().toISOString() });
 }
 
 export async function updateSmartList(id: string, changes: Partial<TaskList>): Promise<void> {
+  const db = getDb();
   changes.updatedAt = new Date().toISOString();
-  await getDb().lists.update(id, changes);
+  await db.lists.update(id, changes);
 }
 
 export async function getListById(id: string): Promise<TaskList | null> {
-  return (await getDb().lists.get(id)) || null;
+  const db = getDb();
+  return (await db.lists.get(id)) || null;
 }
 
 // ── Subtasks ──
@@ -386,9 +395,17 @@ export async function addSubtask(parentId: string, name: string): Promise<Task> 
   const db = getDb();
   const now = new Date().toISOString();
   const task: Task = {
-    id: uuid(), listId: 'sys-subtasks-' + parentId, name,
-    priority: null, dueHasTime: false, postponedCount: 0, tags: [], parentId,
-    version: 1, createdAt: now, updatedAt: now,
+    id: uuid(),
+    listId: 'sys-subtasks-' + parentId,
+    name,
+    priority: null,
+    dueHasTime: false,
+    postponedCount: 0,
+    tags: [],
+    parentId,
+    version: 1,
+    createdAt: now,
+    updatedAt: now,
   };
   await db.transaction('rw', db.tasks, db.syncQueue, async () => {
     await db.tasks.add(task);
@@ -398,32 +415,102 @@ export async function addSubtask(parentId: string, name: string): Promise<Task> 
 }
 
 export async function getSubtasks(parentId: string): Promise<Task[]> {
-  const all = await getDb().tasks.toArray();
+  const db = getDb();
+  const all = await db.tasks.toArray();
   return all.filter((t) => t.parentId === parentId && !t.deletedAt);
 }
 
 // ── Query-based filtering ──
 
-export async function getTasksByQuery(query: string, options?: { showCompleted?: boolean }): Promise<Task[]> {
+export async function getTasksByQuery(
+  query: string,
+  options?: { showCompleted?: boolean },
+): Promise<Task[]> {
   const db = getDb();
   const all = await db.tasks.toArray();
   let filtered = all.filter((t) => !t.deletedAt);
+
   if (!query || !query.trim()) return filtered;
+
   const parts = query.split('&').map((p) => p.trim()).filter(Boolean);
   for (const part of parts) {
     const colonIdx = part.indexOf(':');
-    if (colonIdx < 0) { const q = part.toLowerCase(); filtered = filtered.filter((t) => t.name.toLowerCase().includes(q)); continue; }
+    if (colonIdx < 0) {
+      const q = part.toLowerCase();
+      filtered = filtered.filter((t) => t.name.toLowerCase().includes(q));
+      continue;
+    }
     const field = part.slice(0, colonIdx).trim().toLowerCase();
     const value = part.slice(colonIdx + 1).trim().toLowerCase();
+
     switch (field) {
-      case 'priority': { const p = parseInt(value, 10); filtered = filtered.filter((t) => t.priority === (isNaN(p) ? null : p)); break; }
-      case 'due': if (value==='today') { const s=new Date(new Date().getFullYear(),new Date().getMonth(),new Date().getDate()).getTime(); filtered=filtered.filter(t=>t.dueDate&&new Date(t.dueDate).getTime()>=s&&new Date(t.dueDate).getTime()<s+86400000); } break;
-      case 'tag': case 'tags': filtered=filtered.filter(t=>t.tags.some(tag=>tag.toLowerCase().includes(value))); break;
-      case 'list': filtered=filtered.filter(t=>t.listId.toLowerCase().includes(value)); break;
-      case 'completed': if(value==='yes'||value==='true') filtered=filtered.filter(t=>!!t.completedAt); else filtered=filtered.filter(t=>!t.completedAt); break;
-      case 'isrepeating': if(value==='yes'||value==='true') filtered=filtered.filter(t=>!!t.repeatRule); else filtered=filtered.filter(t=>!t.repeatRule); break;
+      case 'priority': {
+        const p = parseInt(value, 10);
+        filtered = filtered.filter((t) => t.priority === (isNaN(p) ? null : p));
+        break;
+      }
+      case 'due': {
+        if (value === 'today') {
+          const today = new Date();
+          const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+          const tomorrowStart = new Date(todayStart.getTime() + 86400000);
+          filtered = filtered.filter((t) => {
+            if (!t.dueDate) return false;
+            const d = new Date(t.dueDate).getTime();
+            return d >= todayStart.getTime() && d < tomorrowStart.getTime();
+          });
+        } else if (value === 'overdue') {
+          const now = new Date().getTime();
+          filtered = filtered.filter((t) => t.dueDate && new Date(t.dueDate).getTime() < now && !t.completedAt);
+        } else if (value === 'week') {
+          const today = new Date();
+          const start = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+          const end = new Date(start.getTime() + 7 * 86400000);
+          filtered = filtered.filter((t) => {
+            if (!t.dueDate) return false;
+            const d = new Date(t.dueDate).getTime();
+            return d >= start.getTime() && d < end.getTime();
+          });
+        }
+        break;
+      }
+      case 'tag':
+      case 'tags':
+        filtered = filtered.filter((t) =>
+          t.tags.some((tag) => tag.toLowerCase().includes(value)),
+        );
+        break;
+      case 'list':
+        filtered = filtered.filter((t) => t.listId.toLowerCase().includes(value));
+        break;
+      case 'completed':
+        if (value === 'yes' || value === 'true') {
+          filtered = filtered.filter((t) => !!t.completedAt);
+        } else {
+          filtered = filtered.filter((t) => !t.completedAt);
+        }
+        break;
+      case 'isrepeating':
+        if (value === 'yes' || value === 'true') {
+          filtered = filtered.filter((t) => !!t.repeatRule);
+        } else {
+          filtered = filtered.filter((t) => !t.repeatRule);
+        }
+        break;
+      case 'estimate':
+      case 'timeestimate': {
+        const min = parseInt(value.replace(/[<>=]/g, ''), 10);
+        if (value.startsWith('<')) filtered = filtered.filter((t) => (t.estimateMin ?? 0) < min);
+        else if (value.startsWith('>')) filtered = filtered.filter((t) => (t.estimateMin ?? 0) > min);
+        else filtered = filtered.filter((t) => (t.estimateMin ?? 0) <= min);
+        break;
+      }
     }
   }
-  if (!options?.showCompleted) filtered = filtered.filter((t) => !t.completedAt);
+
+  if (!options?.showCompleted) {
+    filtered = filtered.filter((t) => !t.completedAt);
+  }
+
   return filtered;
 }
