@@ -305,6 +305,23 @@ object TaskService {
         return CompleteOutcome(completed, next, newlyCompleted = true, changes = changes)
     }
 
+    /** Undo of a deletion (SPEC FR-1 trash, FR-6 undo): clears deleted_at. No-op for live tasks. */
+    fun restoreInTx(tx: DSLContext, ownerId: UUID, id: UUID): ChangeLog.Change? {
+        val existing = lockOwnTask(tx, ownerId, id, includeDeleted = true)
+        if (existing.get(TasksTable.DELETED_AT) == null) return null
+        val newVersion = existing.get(TasksTable.VERSION) + 1
+        val rec = tx.update(TasksTable.TABLE)
+            .set(TasksTable.DELETED_AT, null as OffsetDateTime?)
+            .set(TasksTable.UPDATED_AT, OffsetDateTime.now())
+            .set(TasksTable.FIELD_VERSIONS, bumpFieldVersions(existing, setOf("deleted")))
+            .set(TasksTable.VERSION, newVersion)
+            .where(TasksTable.ID.eq(id))
+            .returning(TasksTable.ALL)
+            .fetchOne()!!
+        // Full field snapshot: a client that already dropped the task can rebuild it
+        return ChangeLog.append(tx, ownerId, "task", id, "restore", snapshotPayload(rec), newVersion)
+    }
+
     fun uncompleteInTx(tx: DSLContext, ownerId: UUID, id: UUID): ChangeLog.Change? {
         val existing = lockOwnTask(tx, ownerId, id, includeDeleted = false)
         if (existing.get(TasksTable.COMPLETED_AT) == null) return null

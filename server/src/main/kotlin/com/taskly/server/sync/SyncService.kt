@@ -229,6 +229,10 @@ object SyncService {
                 val outcome = TaskService.completeInTx(tx, ownerId, id, completedAt)
                 Applied(ok(op, id, outcome.task.get(TasksTable.VERSION)), outcome.changes)
             }
+            "restore" -> {
+                val change = TaskService.restoreInTx(tx, ownerId, id)
+                Applied(ok(op, id, change?.version), listOfNotNull(change))
+            }
             "uncomplete" -> {
                 val change = TaskService.uncompleteInTx(tx, ownerId, id)
                 Applied(ok(op, id, change?.version), listOfNotNull(change))

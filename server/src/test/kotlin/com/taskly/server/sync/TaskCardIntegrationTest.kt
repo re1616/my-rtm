@@ -178,6 +178,23 @@ class TaskCardIntegrationTest {
         assertEquals("agenda", copiedNote?.let { json.parseToJsonElement(it.str("payload")).jsonObject.str("content") })
     }
 
+    @Test
+    fun `a deleted task can be restored (undo) and only by its owner`() = testApplication {
+        application { moduleForTest() }
+        val u = client.register("restore")
+        val other = client.register("restore-other")
+        val task = client.newTask(u, "Oops")
+        assertEquals("ok", client.push(u, op(u, "task", task, "delete")).status())
+        assertEquals(HttpStatusCode.NotFound, client.get("/v1/tasks/$task") { bearerAuth(u.token) }.status)
+
+        assertEquals("not_found", client.push(other, op(other, "task", task, "restore")).status())
+        assertEquals("ok", client.push(u, op(u, "task", task, "restore")).status())
+        assertEquals(HttpStatusCode.OK, client.get("/v1/tasks/$task") { bearerAuth(u.token) }.status)
+        val restore = client.changes(u).last { it.str("entityId") == task }
+        assertEquals("restore", restore.str("op"))
+        assertEquals("Oops", json.parseToJsonElement(restore.str("payload")).jsonObject.str("name"))
+    }
+
     // ── Helpers ──
 
     private data class User(val token: String, val id: String)
