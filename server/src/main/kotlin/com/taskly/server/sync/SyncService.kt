@@ -6,7 +6,7 @@ import com.taskly.server.redis.RedisService
 import org.jooq.impl.DSL
 import org.jooq.JSONB
 import org.jooq.Record
-import org.jooq.JSONFormat
+import org.jooq.impl.DefaultConfiguration
 import org.slf4j.LoggerFactory
 import kotlinx.serialization.json.Json
 import java.time.OffsetDateTime
@@ -17,6 +17,9 @@ import java.util.*
  * Sync service for offline-first operations.
  * Processes client operations with idempotency, writes to change_log,
  * and fans out via Redis pub/sub.
+ *
+ * SYNC-1: each operation is wrapped in a database savepoint so that
+ * a failed operation does not roll back earlier successful operations.
  */
 object SyncService {
     private val logger = LoggerFactory.getLogger("SyncService")
@@ -25,18 +28,28 @@ object SyncService {
     /**
      * Process a batch of operations from a client.
      * Each operation is checked for idempotency via processed_ops.
+     * Each operation runs in its own savepoint for isolation (SYNC-1).
      */
     fun processOperations(userId: String, ops: List<SyncOperation>): SyncResponse {
         val ctx = Database.ctx()
         val userIdUuid = UUID.fromString(userId)
         val results = mutableListOf<SyncResult>()
 
+        // SEC-3: server-computed scope — ignore client scope
+        val serverScope = "user:$userId"
+
         // Process operations in order within a transaction
         ctx.transaction { config ->
             val tx = DSL.using(config)
+            var opIndex = 0
 
             for (op in ops) {
+                val savepointName = "sp_$opIndex"
+
                 try {
+                    // SYNC-1: create savepoint before each op
+                    tx.execute("SAVEPOINT $savepointName")
+
                     // Idempotency check
                     val existingResult = tx.selectFrom(ProcessedOpsTable.TABLE)
                         .where(ProcessedOpsTable.OP_ID.eq(op.opId))
@@ -47,7 +60,6 @@ object SyncService {
                         // Return previous result
                         val resultJson = existingResult.get(ProcessedOpsTable.RESULT)
                         val resultData = resultJson.data()
-                        // We stored entity_id and version in the result payload
                         results.add(
                             SyncResult(
                                 opId = op.opId,
@@ -56,6 +68,8 @@ object SyncService {
                                 version = null // replayed from cache, no new version
                             )
                         )
+                        // Release savepoint for idempotent ops too
+                        tx.execute("RELEASE SAVEPOINT $savepointName")
                         continue
                     }
 
@@ -64,7 +78,7 @@ object SyncService {
 
                     // Write to change_log
                     val seq = tx.insertInto(ChangeLogTable.TABLE)
-                        .set(ChangeLogTable.SCOPE_ID, op.scope)
+                        .set(ChangeLogTable.SCOPE_ID, serverScope)
                         .set(ChangeLogTable.ENTITY, op.entity)
                         .set(ChangeLogTable.ENTITY_ID, UUID.fromString(result.entityId ?: op.entityId))
                         .set(ChangeLogTable.OP, op.type)
@@ -83,16 +97,22 @@ object SyncService {
 
                     results.add(result)
 
+                    // SYNC-1: release savepoint after successful op
+                    tx.execute("RELEASE SAVEPOINT $savepointName")
+
                     // Publish to Redis for WebSocket fanout
                     try {
                         RedisService.publish(
-                            "sync:$userId:${op.scope}",
+                            "sync:$userId:$serverScope",
                             """{"seq":$seq,"op":"${op.type}","entity":"${op.entity}","entityId":"${result.entityId}","version":${result.version}}"""
                         )
                     } catch (_: Exception) {
                         // Non-critical: WS clients will catch up on next poll
                     }
                 } catch (e: Exception) {
+                    // SYNC-1: roll back only this savepoint, preserving earlier ops
+                    tx.execute("ROLLBACK TO SAVEPOINT $savepointName")
+
                     logger.warn("Sync operation failed: opId={}, entity={}, error={}", op.opId, op.entity, e.message)
                     results.add(
                         SyncResult(
@@ -103,6 +123,8 @@ object SyncService {
                         )
                     )
                 }
+
+                opIndex++
             }
         }
 
@@ -192,7 +214,7 @@ object SyncService {
                     UUID.fromString(kv.toString().removeSurrounding("\""))
                 }
 
-                // Fall back to inbox if list doesn't exist
+                // SEC-1: reject foreign list_id — only accept lists owned by the user
                 if (listId != null) {
                     val listExists = tx.selectOne()
                         .from(ListsTable.TABLE)

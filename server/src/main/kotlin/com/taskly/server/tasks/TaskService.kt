@@ -8,6 +8,9 @@ import com.taskly.server.db.TaskTagsTable
 import com.taskly.server.db.UsersTable
 import com.taskly.server.dto.*
 import com.taskly.shared.smartadd.SmartAddParser
+import com.taskly.shared.recurrence.Recurrence
+import com.taskly.shared.recurrence.RRule as RecurrenceRRule
+import com.taskly.shared.domain.model.RepeatMode
 import org.jooq.Record
 import org.jooq.impl.DSL
 import java.time.OffsetDateTime
@@ -352,37 +355,77 @@ object TaskService {
         val rrule = existing.get(TasksTable.RRULE)
         if (rrule != null) {
             val repeatMode = existing.get(TasksTable.REPEAT_MODE)
-            val nextDueAt = calculateNextDueDate(
-                existing.get(TasksTable.DUE_AT),
-                rrule,
-                repeatMode,
-                existing.get(TasksTable.COMPLETED_AT) ?: now
-            )
+            
+            // SYNC-4: use shared Recurrence for COUNT + DST support
+            val parsedRule = RecurrenceRRule.parse(rrule)
+            if (parsedRule != null) {
+                val mode = when (repeatMode?.lowercase()) {
+                    "after" -> RepeatMode.AFTER
+                    else -> RepeatMode.EVERY
+                }
+                
+                val anchorDate = existing.get(TasksTable.DUE_AT)
+                val completedDate = existing.get(TasksTable.COMPLETED_AT) ?: now
+                
+                // Convert OffsetDateTime -> kotlinx.datetime.LocalDate
+                fun toKotlinLocalDate(odt: OffsetDateTime): kotlinx.datetime.LocalDate =
+                    kotlinx.datetime.LocalDate(odt.year, odt.monthValue, odt.dayOfMonth)
+                
+                val anchorLocal = anchorDate?.let { toKotlinLocalDate(it) }
+                val completedLocal = toKotlinLocalDate(completedDate)
+                
+                // Compute occurrence index: how many intervals since anchor?
+                // For every-mode tasks the anchor IS the last occurrence.
+                // For after-mode the completed date is the base.
+                // We estimate occurrenceIndex to handle COUNT properly.
+                val nextDate = if (parsedRule.count != null && anchorLocal != null) {
+                    // Use occurrences() to check COUNT exhaustion
+                    val allFromAnchor = Recurrence.occurrences(parsedRule, anchorLocal)
+                    if (allFromAnchor.isEmpty()) {
+                        // COUNT exhausted or no limiter — try simple next
+                        Recurrence.nextInstanceDate(parsedRule, mode, anchorLocal, completedLocal)
+                    } else {
+                        // The next instance after anchor is the second occurrence in the list
+                        // (first is anchor itself if it matches the rule)
+                        if (allFromAnchor.size > 1) allFromAnchor[1] else null
+                    }
+                } else {
+                    // No COUNT — use basic nextInstanceDate
+                    Recurrence.nextInstanceDate(parsedRule, mode, anchorLocal, completedLocal)
+                }
+                
+                val nextDueAt = nextDate?.let { kdt ->
+                    // Convert kotlinx.datetime.LocalDate -> java.time.LocalDate -> OffsetDateTime
+                    val timeOrigin = anchorDate ?: completedDate
+                    val jDate = java.time.LocalDate.of(kdt.year, kdt.monthNumber, kdt.dayOfMonth)
+                    OffsetDateTime.of(jDate, timeOrigin.toLocalTime(), timeOrigin.offset)
+                }
 
-            val newRecord = ctx.insertInto(TasksTable.TABLE)
-                .set(TasksTable.OWNER_ID, ownerId)
-                .set(TasksTable.LIST_ID, existing.get(TasksTable.LIST_ID))
-                .set(TasksTable.NAME, existing.get(TasksTable.NAME))
-                .set(TasksTable.PRIORITY, existing.get(TasksTable.PRIORITY))
-                .set(TasksTable.DUE_AT, nextDueAt)
-                .set(TasksTable.DUE_HAS_TIME, existing.get(TasksTable.DUE_HAS_TIME))
-                .set(TasksTable.START_AT, existing.get(TasksTable.START_AT))
-                .set(TasksTable.ESTIMATE_MIN, existing.get(TasksTable.ESTIMATE_MIN))
-                .set(TasksTable.RRULE, rrule)
-                .set(TasksTable.REPEAT_MODE, repeatMode)
-                .set(TasksTable.URL, existing.get(TasksTable.URL))
-                .returning(
-                    TasksTable.ID, TasksTable.NAME, TasksTable.LIST_ID, TasksTable.PRIORITY,
-                    TasksTable.DUE_AT, TasksTable.DUE_HAS_TIME, TasksTable.START_AT,
-                    TasksTable.ESTIMATE_MIN, TasksTable.RRULE, TasksTable.REPEAT_MODE,
-                    TasksTable.COMPLETED_AT, TasksTable.URL, TasksTable.VERSION,
-                    TasksTable.CREATED_AT, TasksTable.UPDATED_AT
-                )
-                .fetchOne()!!
+                val newRecord = ctx.insertInto(TasksTable.TABLE)
+                    .set(TasksTable.OWNER_ID, ownerId)
+                    .set(TasksTable.LIST_ID, existing.get(TasksTable.LIST_ID))
+                    .set(TasksTable.NAME, existing.get(TasksTable.NAME))
+                    .set(TasksTable.PRIORITY, existing.get(TasksTable.PRIORITY))
+                    .set(TasksTable.DUE_AT, nextDueAt)
+                    .set(TasksTable.DUE_HAS_TIME, existing.get(TasksTable.DUE_HAS_TIME))
+                    .set(TasksTable.START_AT, existing.get(TasksTable.START_AT))
+                    .set(TasksTable.ESTIMATE_MIN, existing.get(TasksTable.ESTIMATE_MIN))
+                    .set(TasksTable.RRULE, rrule)
+                    .set(TasksTable.REPEAT_MODE, repeatMode)
+                    .set(TasksTable.URL, existing.get(TasksTable.URL))
+                    .returning(
+                        TasksTable.ID, TasksTable.NAME, TasksTable.LIST_ID, TasksTable.PRIORITY,
+                        TasksTable.DUE_AT, TasksTable.DUE_HAS_TIME, TasksTable.START_AT,
+                        TasksTable.ESTIMATE_MIN, TasksTable.RRULE, TasksTable.REPEAT_MODE,
+                        TasksTable.COMPLETED_AT, TasksTable.URL, TasksTable.VERSION,
+                        TasksTable.CREATED_AT, TasksTable.UPDATED_AT
+                    )
+                    .fetchOne()!!
 
-            val tags = fetchTagIds(id)
-            nextInstance = toResponse(newRecord, tags)
-        }
+                val tags = fetchTagIds(id)
+                nextInstance = toResponse(newRecord, tags)
+            } // end if (parsedRule != null)
+        } // end if (rrule != null)
 
         val completedTags = fetchTagIds(id)
         return CompleteTaskResponse(
@@ -427,32 +470,6 @@ object TaskService {
             createdAt = rec.get(TasksTable.CREATED_AT).format(fmt),
             updatedAt = rec.get(TasksTable.UPDATED_AT).format(fmt)
         )
-    }
-
-    /**
-     * Very basic RRule next-date calculator.
-     * Handles simple daily, weekly, monthly cases.
-     */
-    private fun calculateNextDueDate(
-        currentDueAt: OffsetDateTime?,
-        rrule: String,
-        repeatMode: String?,
-        completedAt: OffsetDateTime
-    ): OffsetDateTime? {
-        val base = currentDueAt ?: completedAt
-        return when {
-            rrule.uppercase().startsWith("FREQ=DAILY") || rrule.contains("DAILY") -> base.plusDays(1)
-            rrule.uppercase().startsWith("FREQ=WEEKLY") || rrule.contains("WEEKLY") -> base.plusWeeks(1)
-            rrule.uppercase().startsWith("FREQ=MONTHLY") || rrule.contains("MONTHLY") -> base.plusMonths(1)
-            rrule.uppercase().startsWith("FREQ=YEARLY") || rrule.contains("YEARLY") -> base.plusYears(1)
-            rrule.toIntOrNull() != null -> {
-                // Simple numeric interval in days
-                val interval = rrule.toInt()
-                val days = if (repeatMode == "after") (completedAt.toLocalDate().toEpochDay() - (currentDueAt?.toLocalDate()?.toEpochDay() ?: 0L)).toInt() else interval
-                base.plusDays(maxOf(days, interval).toLong())
-            }
-            else -> base.plusDays(1)
-        }
     }
 }
 

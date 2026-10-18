@@ -4,12 +4,16 @@ import io.ktor.server.engine.*
 import io.ktor.server.netty.*
 import io.ktor.server.application.Application
 import com.taskly.server.plugins.*
+import com.taskly.server.config.ConfigValidator
 import com.taskly.server.db.Database
 import com.taskly.server.redis.RedisService
 import com.taskly.server.ratelimit.RateLimiter
 import com.taskly.server.auth.AuthService
 
 fun main() {
+    // CFG-1..CFG-4: validate config before any infrastructure init
+    Config.validate()
+
     // Initialize infrastructure
     Database.init(Config.database)
     RedisService.init(Config.redis)

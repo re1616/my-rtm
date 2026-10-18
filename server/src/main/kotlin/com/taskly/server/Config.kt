@@ -1,5 +1,6 @@
 package com.taskly.server
 
+import com.taskly.server.config.ConfigValidator
 import com.typesafe.config.ConfigFactory
 
 // Configuration data classes — maps from application.conf `taskly` block
@@ -29,39 +30,64 @@ data class SyncConfig(
 
 data class RateLimitConfig(
     val tokensPerSecond: Int,
-    val burstSize: Int
+    val burstSize: Int,
+    val perAccountMaxAttempts: Int = 5
 )
 
-// Loader
 object Config {
+    /** Environment: "dev" or "prod". Defaults to "dev" if not set. */
+    val TASKLY_ENV: String = System.getenv("TASKLY_ENV") ?: "dev"
+
     private val config = ConfigFactory.load().getConfig("taskly")
 
+    // CFG-1: env overrides — env vars take precedence over config file defaults
+    private fun envOrConfig(key: String, envVar: String? = null): String {
+        val envValue = if (envVar != null) System.getenv(envVar) else null
+        return envValue ?: config.getString(key)
+    }
+
+    private fun envOrConfigInt(key: String, envVar: String? = null): Int {
+        val envValue = if (envVar != null) System.getenv(envVar) else null
+        return envValue?.toIntOrNull() ?: config.getInt(key)
+    }
+
+    private fun envOrConfigLong(key: String, envVar: String? = null): Long {
+        val envValue = if (envVar != null) System.getenv(envVar) else null
+        return envValue?.toLongOrNull() ?: config.getLong(key)
+    }
+
     val database = DatabaseConfig(
-        host = config.getString("database.host"),
-        port = config.getInt("database.port"),
-        database = config.getString("database.database"),
-        user = config.getString("database.user"),
-        password = config.getString("database.password"),
-        poolSize = config.getInt("database.poolSize")
+        host = envOrConfig("database.host", "PGHOST"),
+        port = envOrConfigInt("database.port", "PGPORT"),
+        database = envOrConfig("database.database", "PGDATABASE"),
+        user = envOrConfig("database.user", "PGUSER"),
+        password = envOrConfig("database.password", "PGPASSWORD"),
+        poolSize = envOrConfigInt("database.poolSize")
     )
 
     val redis = RedisConfig(
-        host = config.getString("redis.host"),
-        port = config.getInt("redis.port")
+        host = envOrConfig("redis.host", "REDIS_HOST"),
+        port = envOrConfigInt("redis.port", "REDIS_PORT")
     )
 
     val auth = AuthConfig(
-        jwtSecret = config.getString("auth.jwtSecret"),
-        accessTokenExpiryMinutes = config.getLong("auth.accessTokenExpiryMinutes"),
-        refreshTokenExpiryDays = config.getInt("auth.refreshTokenExpiryDays")
+        jwtSecret = envOrConfig("auth.jwtSecret", "JWT_SECRET"),
+        accessTokenExpiryMinutes = envOrConfigLong("auth.accessTokenExpiryMinutes"),
+        refreshTokenExpiryDays = envOrConfigInt("auth.refreshTokenExpiryDays")
     )
 
     val sync = SyncConfig(
-        maxBatchSize = config.getInt("sync.maxBatchSize")
+        maxBatchSize = envOrConfigInt("sync.maxBatchSize")
     )
 
     val rateLimit = RateLimitConfig(
-        tokensPerSecond = config.getInt("rateLimit.tokensPerSecond"),
-        burstSize = config.getInt("rateLimit.burstSize")
+        tokensPerSecond = envOrConfigInt("rateLimit.tokensPerSecond"),
+        burstSize = envOrConfigInt("rateLimit.burstSize"),
+        perAccountMaxAttempts = 5
     )
+
+    /** Call after construction to validate all config. */
+    fun validate() {
+        ConfigValidator.validate(this)
+    }
 }
