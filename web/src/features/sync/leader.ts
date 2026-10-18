@@ -31,7 +31,8 @@ export function defaultLockService(): LockService | null {
       navigator.locks &&
       typeof navigator.locks.request === 'function'
     ) {
-      return navigator.locks as LockService;
+      // LockManager → LockService через unknown (разные DOM-типы)
+      return navigator.locks as unknown as LockService;
     }
   } catch {
     // navigator unavailable
