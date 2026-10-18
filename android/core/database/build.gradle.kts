@@ -1,6 +1,7 @@
 plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
+    alias(libs.plugins.ksp)
 }
 
 android {
@@ -28,5 +29,14 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.datetime)
 
+    // Room
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+    ksp(libs.room.compiler)
+
+    // Room testing (for migration tests — uses AndroidX test runner)
+    testImplementation(libs.room.testing)
     testImplementation(libs.kotlin.test)
+    testImplementation(libs.kotlinx.coroutines.core)
+    testImplementation(project(":shared"))
 }

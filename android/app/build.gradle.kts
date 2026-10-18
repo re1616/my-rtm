@@ -50,6 +50,10 @@ dependencies {
     implementation(project(":android:feature:tasks"))
     implementation(project(":shared"))
 
+    // Room (needed at app level for DI/manual wiring)
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
+
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
     implementation(libs.compose.ui.graphics)

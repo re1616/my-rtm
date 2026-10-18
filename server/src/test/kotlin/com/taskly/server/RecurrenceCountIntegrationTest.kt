@@ -42,7 +42,7 @@ class RecurrenceCountIntegrationTest {
     @AfterAll
     fun teardown() {
         Database.shutdown()
-        RedisService.shutdown()
+        RedisService.close()
     }
 
     @Test

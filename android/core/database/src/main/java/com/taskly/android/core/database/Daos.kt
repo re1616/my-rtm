@@ -1,61 +1,102 @@
 package com.taskly.android.core.database
 
+import androidx.room.Dao
+import androidx.room.Query
+import androidx.room.Upsert
 import kotlinx.coroutines.flow.Flow
-import kotlinx.coroutines.flow.MutableStateFlow
 
-/**
- * DAO interfaces — Room annotations will be added in coder phase (AND-S1).
- * Phase 1 scaffold: in-memory stubs.
- */
+@Dao
+interface TaskDao {
+    @Query("SELECT * FROM tasks WHERE owner_id = :ownerId AND deleted_at IS NULL ORDER BY updated_at DESC")
+    fun getAll(ownerId: String): Flow<List<TaskEntity>>
 
-class TaskDao {
-    private val _tasks = MutableStateFlow<List<TaskEntity>>(emptyList())
+    @Query("SELECT * FROM tasks WHERE id = :id")
+    suspend fun getById(id: String): TaskEntity?
 
-    fun getAll(ownerId: String): Flow<List<TaskEntity>> = _tasks
+    @Query("SELECT * FROM tasks WHERE list_id = :listId AND deleted_at IS NULL ORDER BY updated_at DESC")
+    fun getByList(listId: String): Flow<List<TaskEntity>>
 
-    fun getByList(listId: String): Flow<List<TaskEntity>> = _tasks
+    @Upsert
+    suspend fun upsertAll(tasks: List<TaskEntity>)
 
-    suspend fun upsertAll(tasks: List<TaskEntity>) { _tasks.value = tasks }
+    @Upsert
+    suspend fun upsert(task: TaskEntity)
 
-    suspend fun upsert(task: TaskEntity) { /* stub */ }
+    @Query("UPDATE tasks SET deleted_at = :deletedAt, updated_at = :updatedAt WHERE id = :id")
+    suspend fun softDelete(id: String, deletedAt: String, updatedAt: String)
 
-    suspend fun softDelete(id: String, deletedAt: String, updatedAt: String) { /* stub */ }
+    @Query("SELECT * FROM tasks WHERE owner_id = :query OR name LIKE '%' || :query || '%'")
+    suspend fun searchTasks(query: String): List<TaskEntity>
 }
 
-class ListDao {
-    private val _lists = MutableStateFlow<List<ListEntity>>(emptyList())
+@Dao
+interface ListDao {
+    @Query("SELECT * FROM task_lists WHERE owner_id = :ownerId AND deleted_at IS NULL ORDER BY sort_order ASC")
+    fun getAll(ownerId: String): Flow<List<ListEntity>>
 
-    fun getAll(ownerId: String): Flow<List<ListEntity>> = _lists
+    @Query("SELECT * FROM task_lists WHERE id = :id")
+    suspend fun getById(id: String): ListEntity?
 
-    suspend fun upsertAll(lists: List<ListEntity>) { _lists.value = lists }
+    @Upsert
+    suspend fun upsertAll(lists: List<ListEntity>)
+
+    @Upsert
+    suspend fun upsert(list: ListEntity)
+
+    @Query("UPDATE task_lists SET deleted_at = :deletedAt, updated_at = :updatedAt WHERE id = :id")
+    suspend fun softDelete(id: String, deletedAt: String, updatedAt: String)
 }
 
-class TagDao {
-    private val _tags = MutableStateFlow<List<TagEntity>>(emptyList())
+@Dao
+interface TagDao {
+    @Query("SELECT * FROM tags WHERE owner_id = :ownerId ORDER BY name ASC")
+    fun getAll(ownerId: String): Flow<List<TagEntity>>
 
-    fun getAll(ownerId: String): Flow<List<TagEntity>> = _tags
+    @Query("SELECT * FROM tags WHERE id = :id")
+    suspend fun getById(id: String): TagEntity?
+
+    @Upsert
+    suspend fun upsertAll(tags: List<TagEntity>)
+
+    @Upsert
+    suspend fun upsert(tag: TagEntity)
+
+    @Query("DELETE FROM tags WHERE id = :id")
+    suspend fun delete(id: String)
 }
 
-class SyncQueueDao {
-    private val _queue = mutableListOf<SyncOperationEntity>()
+@Dao
+interface SyncQueueDao {
+    @Query("SELECT * FROM sync_queue WHERE status = 'pending' ORDER BY created_at ASC")
+    suspend fun getPending(): List<SyncOperationEntity>
 
-    suspend fun getPending(): List<SyncOperationEntity> = _queue.filter { it.status == "pending" }
+    @Query("SELECT COUNT(*) FROM sync_queue WHERE status = 'pending'")
+    fun pendingCount(): Flow<Int>
 
-    fun pendingCount(): Flow<Int> = MutableStateFlow(_queue.size)
+    @Upsert
+    suspend fun insert(op: SyncOperationEntity)
 
-    suspend fun insert(op: SyncOperationEntity) { _queue.add(op) }
+    @Query("DELETE FROM sync_queue WHERE opId = :opId")
+    suspend fun remove(opId: String)
 
-    suspend fun markFailed(opId: String, status: String = "failed", error: String? = null) { /* stub */ }
+    @Query("UPDATE sync_queue SET status = 'failed', last_error = :error WHERE opId = :opId")
+    suspend fun markFailed(opId: String, error: String?)
 
-    suspend fun remove(opId: String) { _queue.removeAll { it.opId == opId } }
+    @Query("DELETE FROM sync_queue WHERE status = 'completed'")
+    suspend fun clearCompleted()
 
-    suspend fun clearCompleted() { _queue.removeAll { it.status == "completed" } }
+    @Query("SELECT * FROM sync_queue WHERE entity_id = :entityId ORDER BY created_at ASC")
+    suspend fun getByEntity(entityId: String): List<SyncOperationEntity>
 }
 
-class FieldVersionDao {
-    private val _versions = mutableListOf<FieldVersionEntity>()
+@Dao
+interface FieldVersionDao {
+    @Query("SELECT * FROM field_versions WHERE entity_id = :entityId ORDER BY field_name ASC")
+    suspend fun getForEntity(entityId: String): List<FieldVersionEntity>
 
-    suspend fun getForEntity(entityId: String): List<FieldVersionEntity> = _versions.filter { it.entityId == entityId }
+    @Upsert
+    suspend fun upsertAll(versions: List<FieldVersionEntity>)
 
-    suspend fun upsertAll(versions: List<FieldVersionEntity>) { /* stub */ }
+    @Query("SELECT * FROM field_versions WHERE entity_id = :entityId AND field_name = :fieldName")
+    suspend fun getById(entityId: String, fieldName: String): FieldVersionEntity?
 }

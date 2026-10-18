@@ -1,23 +1,30 @@
 package com.taskly.android.core.database
 
 import android.content.Context
+import androidx.room.Database
+import androidx.room.Room
+import androidx.room.RoomDatabase
+import androidx.room.TypeConverters
 
-/**
- * Database class — stubbed for Phase 1 scaffold.
- * Room + Hilt + KSP will replace these in coder phase (AND-S1).
- */
-class TasklyDatabase {
-    private val _taskDao = TaskDao()
-    private val _listDao = ListDao()
-    private val _tagDao = TagDao()
-    private val _syncQueueDao = SyncQueueDao()
-    private val _fieldVersionDao = FieldVersionDao()
-
-    fun taskDao(): TaskDao = _taskDao
-    fun listDao(): ListDao = _listDao
-    fun tagDao(): TagDao = _tagDao
-    fun syncQueueDao(): SyncQueueDao = _syncQueueDao
-    fun fieldVersionDao(): FieldVersionDao = _fieldVersionDao
+@Database(
+    entities = [
+        TaskEntity::class,
+        ListEntity::class,
+        TagEntity::class,
+        TaskTagEntity::class,
+        FieldVersionEntity::class,
+        SyncOperationEntity::class
+    ],
+    version = 1,
+    exportSchema = false
+)
+@TypeConverters(Converters::class)
+abstract class TasklyDatabase : RoomDatabase() {
+    abstract fun taskDao(): TaskDao
+    abstract fun listDao(): ListDao
+    abstract fun tagDao(): TagDao
+    abstract fun syncQueueDao(): SyncQueueDao
+    abstract fun fieldVersionDao(): FieldVersionDao
 
     companion object {
         @Volatile
@@ -25,7 +32,13 @@ class TasklyDatabase {
 
         fun getInstance(context: Context): TasklyDatabase {
             return INSTANCE ?: synchronized(this) {
-                val instance = TasklyDatabase()
+                val instance = Room.databaseBuilder(
+                    context.applicationContext,
+                    TasklyDatabase::class.java,
+                    "taskly.db"
+                )
+                    .fallbackToDestructiveMigration()
+                    .build()
                 INSTANCE = instance
                 instance
             }

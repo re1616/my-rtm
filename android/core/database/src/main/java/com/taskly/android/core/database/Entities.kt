@@ -1,79 +1,89 @@
 package com.taskly.android.core.database
 
-/**
- * Entities mirroring server data model for local storage.
- * Room annotations will be added in the coder phase (AND-S1).
- * Phase 1 scaffold: pure data classes without persistence framework.
- */
+import androidx.room.ColumnInfo
+import androidx.room.Entity
+import androidx.room.PrimaryKey
 
+@Entity(tableName = "tasks")
 data class TaskEntity(
-    val id: String,
-    val ownerId: String,
-    val listId: String,
-    val parentId: String? = null,
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "owner_id") val ownerId: String,
+    @ColumnInfo(name = "list_id") val listId: String,
+    @ColumnInfo(name = "parent_id") val parentId: String? = null,
     val name: String,
     val priority: Int? = null,
-    val dueAt: String? = null,
-    val dueHasTime: Boolean = false,
-    val startAt: String? = null,
-    val estimateMin: Int? = null,
+    @ColumnInfo(name = "due_at") val dueAt: String? = null,
+    @ColumnInfo(name = "due_has_time") val dueHasTime: Boolean = false,
+    @ColumnInfo(name = "start_at") val startAt: String? = null,
+    @ColumnInfo(name = "estimate_min") val estimateMin: Int? = null,
     val rrule: String? = null,
-    val repeatMode: String? = null,
-    val completedAt: String? = null,
-    val postponedCount: Int = 0,
+    @ColumnInfo(name = "repeat_mode") val repeatMode: String? = null,
+    @ColumnInfo(name = "completed_at") val completedAt: String? = null,
+    @ColumnInfo(name = "postponed_count") val postponedCount: Int = 0,
     val url: String? = null,
     val version: Long = 1,
-    val deletedAt: String? = null,
-    val createdAt: String,
-    val updatedAt: String
+    @ColumnInfo(name = "deleted_at") val deletedAt: String? = null,
+    @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "updated_at") val updatedAt: String
 )
 
+@Entity(tableName = "task_lists")
 data class ListEntity(
-    val id: String,
-    val ownerId: String,
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "owner_id") val ownerId: String,
     val name: String,
-    val isSmart: Boolean = false,
+    @ColumnInfo(name = "is_smart") val isSmart: Boolean = false,
     val query: String? = null,
     val color: String? = null,
     val archived: Boolean = false,
-    val sortOrder: Int = 0,
+    @ColumnInfo(name = "sort_order") val sortOrder: Int = 0,
     val version: Long = 1,
-    val deletedAt: String? = null,
-    val createdAt: String,
-    val updatedAt: String
+    @ColumnInfo(name = "deleted_at") val deletedAt: String? = null,
+    @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "updated_at") val updatedAt: String
 )
 
+@Entity(tableName = "tags")
 data class TagEntity(
-    val id: String,
-    val ownerId: String,
+    @PrimaryKey val id: String,
+    @ColumnInfo(name = "owner_id") val ownerId: String,
     val name: String,
     val version: Long = 1,
-    val createdAt: String,
-    val updatedAt: String
+    @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "updated_at") val updatedAt: String
 )
 
+@Entity(
+    tableName = "task_tags",
+    primaryKeys = ["taskId", "tagId"]
+)
 data class TaskTagEntity(
-    val taskId: String,
-    val tagId: String
+    @ColumnInfo(name = "task_id") val taskId: String,
+    @ColumnInfo(name = "tag_id") val tagId: String
 )
 
+@Entity(
+    tableName = "field_versions",
+    primaryKeys = ["entityId", "fieldName"]
+)
 data class FieldVersionEntity(
-    val entityId: String,
-    val fieldName: String,
+    @ColumnInfo(name = "entity_id") val entityId: String,
+    @ColumnInfo(name = "field_name") val fieldName: String,
     val version: Long,
-    val value: String?,
-    val updatedAt: String
+    val value: String? = null,
+    @ColumnInfo(name = "updated_at") val updatedAt: String
 )
 
+@Entity(tableName = "sync_queue")
 data class SyncOperationEntity(
-    val opId: String,
-    val entityType: String,
-    val entityId: String,
-    val operationType: String,
+    @PrimaryKey val opId: String,
+    @ColumnInfo(name = "entity_type") val entityType: String,
+    @ColumnInfo(name = "entity_id") val entityId: String,
+    @ColumnInfo(name = "operation_type") val operationType: String,
     val scope: String,
     val fields: String,
-    val createdAt: String,
-    val retryCount: Int = 0,
-    val lastError: String? = null,
+    @ColumnInfo(name = "created_at") val createdAt: String,
+    @ColumnInfo(name = "retry_count") val retryCount: Int = 0,
+    @ColumnInfo(name = "last_error") val lastError: String? = null,
     val status: String = "pending"
 )
