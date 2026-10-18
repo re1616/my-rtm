@@ -5,7 +5,8 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import { getDb, initializeDb } from '../db/database';
 import { createTask, completeTask, getPendingSyncOps, getTasksByList } from '../entities/taskRepository';
 import { pushPendingOps, syncNow } from '../features/sync/SyncService';
-import { apiRequest, register } from '../api/client';
+import { apiRequest, register, setSession } from '../api/client';
+import type { Session } from '../types';
 
 const baseUrl = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env
   .TASKLY_E2E_URL;
@@ -22,20 +23,21 @@ if (!baseUrl && e2eRequired) {
 
 let online = true;
 const flakyFetch: typeof fetch = (input, init) => {
-  if (!online) return Promise.reject(new TypeError('Failed to fetch'));
+  if (!online) return new Promise((_, reject) => reject(new TypeError('Failed to fetch')));
   return globalThis.fetch(input, init);
 };
 const deps = { fetchImpl: flakyFetch, baseUrl };
 
 describe.skipIf(!baseUrl)('offline sync against the real server', () => {
   let token = '';
+  let session: Session | null = null;
 
   beforeEach(async () => {
     await initializeDb();
     const db = getDb();
     await Promise.all([db.tasks.clear(), db.syncQueue.clear(), db.settings.clear()]);
     online = true;
-    const session = await register(deps, `e2e-${crypto.randomUUID()}@taskly.test`, 'E2e-password-1');
+    session = await register(deps, `e2e-${crypto.randomUUID()}@taskly.test`, 'E2e-password-1');
     token = session.accessToken;
   });
 
@@ -89,7 +91,7 @@ describe.skipIf(!baseUrl)('offline sync against the real server', () => {
     // Используем sync engine для создания списка
     // (SYNC-6: клиент должен суметь применить дельты для всех сущностей scope)
     // Отправляем create операцию для списка
-    db.syncQueue.add({
+    await db.syncQueue.add({
       opId: crypto.randomUUID(),
       seq: Date.now(),
       scope: '',
@@ -104,7 +106,7 @@ describe.skipIf(!baseUrl)('offline sync against the real server', () => {
     });
 
     // Отправляем create операцию для тега
-    db.syncQueue.add({
+    await db.syncQueue.add({
       opId: crypto.randomUUID(),
       seq: Date.now() + 1,
       scope: '',
@@ -119,7 +121,7 @@ describe.skipIf(!baseUrl)('offline sync against the real server', () => {
     });
 
     // Отправляем create операцию для локации
-    db.syncQueue.add({
+    await db.syncQueue.add({
       opId: crypto.randomUUID(),
       seq: Date.now() + 2,
       scope: '',
@@ -142,11 +144,13 @@ describe.skipIf(!baseUrl)('offline sync against the real server', () => {
     const remaining = await getPendingSyncOps();
     expect(remaining.length).toBe(0);
 
-    // Очищаем локальную БД, чтобы pull снова их загрузил
+    // Очищаем локальную БД, чтобы pull снова их загрузил.
+    // Важно: settings содержит и сессию, и курсор — сессию восстанавливаем сразу.
     await db.lists.clear();
     await db.tags.clear();
     await db.locations.clear();
     await db.settings.clear();
+    if (session) await setSession(session);
 
     // Pull — должен получить дельты со всеми сущностями
     const pulled = await syncNow(deps);
