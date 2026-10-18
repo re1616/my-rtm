@@ -22,7 +22,7 @@ data class TaskEntity(
     @ColumnInfo(name = "postponed_count") val postponedCount: Int = 0,
     val url: String? = null,
     val version: Long = 1,
-    val sortOrder: Int = 0,
+    @ColumnInfo(name = "sort_order", defaultValue = "0") val sortOrder: Int = 0,
     @ColumnInfo(name = "deleted_at") val deletedAt: String? = null,
     @ColumnInfo(name = "created_at") val createdAt: String,
     @ColumnInfo(name = "updated_at") val updatedAt: String

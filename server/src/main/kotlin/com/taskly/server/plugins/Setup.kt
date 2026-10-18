@@ -21,6 +21,7 @@ import com.taskly.server.features.featuresRoutes
 import com.taskly.server.websocket.WebSocketService
 import com.taskly.server.errors.*
 import com.taskly.server.ratelimit.RateLimitPlugin
+import com.taskly.server.ratelimit.RateLimitExceededException
 import io.ktor.server.plugins.BadRequestException
 
 private val logger = LoggerFactory.getLogger("Setup")
