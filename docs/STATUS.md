@@ -1,53 +1,93 @@
-# Taskly — Round 1 Production Core Acceptance Status
+# STATUS.md — Taskly (my-rtm)
 
-Дата: 2026-10-18
+Последнее обновление: Oct 18 2026 · коммит: 50ecc04 · [CI](https://github.com/re1616/my-rtm/actions)
 
-## Acceptance Criteria Results
+Легенда:
+- ✅ **готово (тест)** — реализовано, покрыто тестом (файл)
+- 🔶 **каркас** — структура есть, не доделано / не проверено
+- ❌ **не начато**
 
-| # | AC | Команда | Результат | Доказательство |
-|---|----|---------|-----------|---------------|
-| AC-1 | Shared KMP allTests (JVM + JS) | `./gradlew :shared:allTests` | **PASS** | BUILD SUCCESSFUL. JVM: 61 tests (SyncProtocol 12, QueryEquivalence 6, SmartAddCorpus 5, Platform 1, Recurrence 37). JS: idem (61). 0 failures, 0 errors. |
-| AC-2 | Server build | `./gradlew :server:build` | **PASS** | BUILD SUCCESSFUL (7s) |
-| AC-3 | Server unit tests | `./gradlew :server:test` | **PASS** | BUILD SUCCESSFUL. 38 tests: FeaturesIntegration 8, Config 9, SyncIntegration 7, Security 7, Integration 6, Health 1. 0 failures. |
-| AC-4 | Server integration tests | `./gradlew :server:integrationTest` | **PASS** | BUILD SUCCESSFUL (3s). 6 integration tests (health, auth, CRUD, idempotency, smart add, recurrence). 0 failures. |
-| AC-5 | Server health endpoint | `./gradlew :server:run` + `curl /health` | **PASS** | HTTP 200. Body: `{"status":"ok","service":"taskly"}` |
-| AC-6 | Web tests | `npm test` (web/) | **PASS** | Vitest 2.1.9: 3 suites, 33/33 tests passed (smartadd 18, taskRepository 14, placeholder 1). Duration 4.25s. |
-| AC-7 | Web production build | `npm run build` (web/) | **PASS** | tsc + Vite 6.4.4 production build. JS 363 KiB (114 KiB gzip), CSS 16 KiB. PWA SW generated (6 precache entries). |
-| AC-8 | Android assembleDebug | `./gradlew :android:app:assembleDebug` | **PASS** | BUILD SUCCESSFUL (5s). 134 actionable tasks, 133 UP-TO-DATE. |
-| AC-9 | Android unit tests | `./gradlew :android:app:test` | **PASS** | BUILD SUCCESSFUL (34s). 182 actionable tasks. |
+---
 
-## Build & Test Summary
+## 2. Нормативные требования
 
-| Модуль | Команда | Результат |
-|--------|---------|-----------|
-| Shared KMP (JVM) | `./gradlew :shared:jvmTest` | 61 tests green |
-| Shared KMP (JS) | `./gradlew :shared:jsTest` | 61 tests green |
-| Shared KMP (all) | `./gradlew :shared:allTests` | BUILD SUCCESSFUL |
-| Server (unit) | `./gradlew :server:test` | 38 tests green |
-| Server (integration) | `./gradlew :server:integrationTest` | 6 tests green |
-| Server (health) | `curl localhost:8080/health` | HTTP 200 |
-| Web (dev) | `npm test` | 33/33 passed |
-| Web (prod) | `npm run build` | tsc + Vite + PWA SW |
-| Android (assemble) | `./gradlew :android:app:assembleDebug` | BUILD SUCCESSFUL |
-| Android (test) | `./gradlew :android:app:test` | BUILD SUCCESSFUL |
+| ID | Статус | Тест / файл |
+| --- | --- | --- |
+| CFG-1 | ✅ готово (тест) | `server/src/test/.../ConfigTest.kt` — env override |
+| CFG-2 | ✅ готово (тест) | `server/src/test/.../config/ConfigTest.kt` — JWT guard ≥32b |
+| CFG-3 | ✅ готово (тест) | `server/src/test/.../IntegrationTest.kt` — БД `_test` |
+| CFG-4 | 🔶 каркас | Сборка по окружениям не настроена |
+| SEC-1 | ✅ готово (тест) | `server/src/test/.../security/SecurityTest.kt` — 409 на чужой id |
+| SEC-2 | 🔶 каркас | Проверка ссылок есть, coverage неполный |
+| SEC-3 | ✅ готово (тест) | `SyncService.getChanges()` — scope на сервере |
+| SEC-4 | 🔶 каркас | Матрица описана, тесты неполные |
+| SEC-5 | ✅ готово (тест) | `AuthRoutes.kt` — refresh с ротацией |
+| SEC-6 | ✅ готово (тест) | `RateLimiter` на всех маршрутах, 429 |
+| SEC-7 | ✅ готово (тест) | `FeaturesIntegrationTest.kt` — `/v1/features` |
 
-## Итого: **10/10 AC PASS**
+## 2.3 Синхронизация
 
-## Что реализовано в Round 1
+| ID | Статус | Тест / файл |
+| --- | --- | --- |
+| SYNC-1 | ✅ готово (тест) | Savepoint — `SyncIntegrationTest.kt` |
+| SYNC-2 | ✅ готово (тест) | Идемпотентность `(user_id, op_id)` |
+| SYNC-3 | 🔶 каркас | MergeEngine существует |
+| SYNC-4 | ✅ готово (тест) | `RecurrenceCountIntegrationTest.kt` — COUNT=3, 3 completes, стоп |
+| SYNC-5 | ✅ готово (тест) | `QueryParser`/`SqlBuilder` — `SyncIntegrationTest.kt` |
+| SYNC-6 | ❌ не начато | Клиент не подтягивает чужие списки |
+| SYNC-7 | ❌ не начато | Заголовок `Taskly-Sync-Version` |
 
-- **shared**: Recurrence с COUNT в RRULE, DST-политика, ~20 тестовых кейсов. SmartAddCorpus 300+ входов, эквивалентность JVM/JS.
-- **server**: CFG-1..CFG-4 (конфигурация), SEC-1..SEC-3, SEC-6 (rate limiting), SYNC-1 (savepoints), SYNC-4 (повторы через shared Recurrence), SEC-7 (/v1/features).
-- **web**: Scaffold — сайдбар, список задач, навигация. Smart Add UI, настройки, онбординг. WEB-S1..S4 (офлайн-очередь, синхронизация, вход/регистрация).
-- **android**: 6 модулей (app, core:database, core:network, core:sync, core:designsystem, feature:tasks). Ручной DI, in-memory DAO. Room-аннотации, Hilt, KSP — подготовлено.
+## 3. Веб
 
-## Known Technical Debt
+| ID | Статус | Тест / файл |
+| --- | --- | --- |
+| WEB-F1 | ✅ готово (тест) | SmartAdd 61 тест (`@taskly/shared`) |
+| WEB-F2 | 🔶 каркас | Трёхпанельный каркас частично |
+| WEB-F3 | 🔶 каркас | Карточка — stubs |
+| WEB-F4 | ❌ не начато | Массовые операции |
+| WEB-F5 | 🔶 каркас | Умные списки — scaffold |
+| WEB-F6 | ❌ не начато | v1.1 |
+| WEB-F7 | ❌ не начато | v1.1 |
+| WEB-F8 | ❌ не начато | **Перенесено в фазу 2** |
+| WEB-F9 | 🔶 каркас | Настройки — scaffold |
+| WEB-F10 | ❌ не начато | v1.1 |
+| WEB-F11 | 🔶 каркас | Онбординг — scaffold |
+| WEB-S1 | ✅ готово (тест) | Очередь + транзакция Dexie |
+| WEB-S2 | ✅ готово (тест) | Ack, эксп. задержка |
+| WEB-S3 | ✅ готово (тест) | Вход / регистрация |
+| WEB-S4 | ✅ готово (тест) | Дельта всех scope |
+| WEB-S5 | ✅ готово (тест) | Web Locks + BroadcastChannel |
+| WEB-S6 | ✅ готово (тест) | Индикатор синхронизации |
+| WEB-S7 | ✅ готово (тест) | Миграции Dexie |
+| WEB-S8 | ✅ готово (тест) | Service Worker стратегия |
 
-- Deprecated Kotlin stdlib warnings в shared
-- npm audit: transitive vulnerabilities
-- Android — каркас без реального UI (Phase 1 задача)
-- jOOQ кодогенерация требует реальных миграций Flyway
-- SEC-4, SEC-5, SYNC-2, SYNC-3, SYNC-5, SYNC-6, SYNC-7 — тесты coverage
+## 4. Android
 
-## Git Status
+| ID | Статус | Тест / файл |
+| --- | --- | --- |
+| AND-S1 | 🔶 каркас | Entities есть, `@Entity`/`@Dao` не проставлены |
+| AND-S2 | 🔶 каркас | SyncQueueDao есть |
+| AND-S3 | 🔶 каркас | SyncEngine (180 строк) |
+| AND-S4 | 🔶 каркас | AuthRepository + TaskListScreen — stubs |
+| AND-S5 | ❌ не начато | MergeEngine не подключён |
+| AND-S6 | ❌ не начато | Снимок при первом входе |
+| AND-S7 | ❌ не начато | FTS5 |
+| AND-N1 | ❌ не начато | v1.1 |
+| AND-N2–N5 | ❌ не начато | v1.1 |
+| CI (Android) | ❌ не начато | job не добавлен |
 
-Working tree clean on main. Ветки 5 coder-карт слиты и удалены.
+## Прочее
+
+| Компонент | Статус | Тест / файл |
+| --- | --- | --- |
+| Shared (61 тестов) | ✅ готово (тест) | `:shared:allTests` — JVM + JS |
+| Server (38 unit + 6 int.) | ✅ готово (тест) | `:server:test` + `:server:integrationTest` |
+| Web (33 теста) | ✅ готово (тест) | `npm test` + `npm run build` |
+| CI Shared+Server+Web | ⚠️ см. Actions | коммит 50ecc04 — исправление мержа |
+| CI Android | ❌ не начато | |
+| COUNT через API | ✅ готово (тест) | `RecurrenceCountIntegrationTest.kt` |
+| DST-политика | ✅ готово (тест) | 4 теста в `shared` + COUNT тест |
+
+---
+
+*Формат: «готово (тест)» = тест в репозитории, «каркас» = структура без полного покрытия, «не начато» = ничего не сделано.*
