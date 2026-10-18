@@ -34,7 +34,7 @@ class IntegrationTest {
     @BeforeEach
     fun cleanup() {
         val ctx = Database.ctx()
-        ctx.execute("TRUNCATE TABLE tasks, lists, tags, task_tags, notes, reminders, refresh_tokens, users, processed_ops, change_log RESTART IDENTITY CASCADE")
+        ctx.execute("TRUNCATE TABLE tasks, lists, tags, task_tags, notes, reminders, refresh_tokens, users, processed_ops, change_log, feature_flags RESTART IDENTITY CASCADE")
     }
 
     @AfterAll
