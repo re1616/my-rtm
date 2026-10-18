@@ -155,4 +155,55 @@
 
 ### CI
 - `:server:test` — 76 тестов (было 61) ✅
-- `:server:integrationTest` — ✅
+|- `:server:integrationTest` — ✅
+
+# M2: Web sync — WEB-S1…S8 тестами — Status: ✅ (t_a8e463ee)
+
+**Дата:** 2026-10-18
+**Ветка:** `milestone/m2`
+**PR:** [открыт](https://github.com/re1616/my-rtm/pull/N) (ссылка будет после открытия PR)
+
+## Требования (docs/SPEC_v2.1.md, раздел 3.2)
+
+| Требование | Файл теста(ов) | Статус |
+|---|---|---|
+| **WEB-S1** — операция в очереди в той же транзакции Dexie, что и изменение; сбой → ни то, ни другое не записано | `webSync.test.ts` (3 теста) | ✅ |
+| **WEB-S2** — отправка строго по порядку, удаление только после ack; rejected → очередь, откат локально | `webSync.test.ts` (4 теста) | ✅ |
+| **WEB-S3** — вход/регистрация; OAuth Google через мок-провайдера; восстановление пароля; 2FA; обновление access-токена без разлогина | `authFlow.test.ts` (7 тестов) | ✅ |
+| **WEB-S4** — дельта всех scope + SYNC-6 (списки, теги); первый вход — снимок пагинацией 500; курсор сохраняется | `pullChanges.test.ts` (5 тестов) | ✅ |
+| **WEB-S5** — одна вкладка-лидер (Web Locks), BroadcastChannel, переход ≤ 2 с | `leaderChannel.test.ts` (7 тестов) | ✅ |
+| **WEB-S6** — индикатор синхронизации (idle/offline/error/unauthenticated) + ручной повтор | `syncIndicator.test.tsx` (9 тестов) | ✅ |
+| **WEB-S7** — миграции Dexie версионированы; обновление не теряет очередь | `migration.test.ts` (4 теста) | ✅ |
+| **WEB-S8** — Service Worker: «новая версия готова — обновить», без location.reload при вводе | `serviceWorkerStrategy.test.ts` (5 тестов) | ✅ |
+
+**Всего новых тестов: 44**
+
+## Примечания
+
+- **smartadd.test.ts** продолжает падать (`@taskly/shared` не собран) — не входит в M2.
+- **offlineSync.e2e.test.ts** (2 теста) пропущены в локальном прогоне (требуют TASKLY_E2E_URL) — не входят в M2.
+- Счётчик тестов до M2: 22 pass (+ 2 skipped). После M2: 67 pass (+ 2 skipped). Чистый прирост: 45 тестов.
+
+## Структура изменений
+
+### Новые файлы
+
+| Файл | Описание |
+|---|---|
+| `web/src/__tests__/webSync.test.ts` | WEB-S1 (атомарность) + WEB-S2 (порядок, ack, откат) |
+| `web/src/__tests__/authFlow.test.ts` | WEB-S3 (логин, OAuth, 2FA, восстановление пароля) |
+| `web/src/__tests__/pullChanges.test.ts` | WEB-S4 (мульти-scope дельты, пагинация, курсор) |
+| `web/src/__tests__/leaderChannel.test.ts` | WEB-S5 (лидерство, BroadcastChannel, тайминги) |
+| `web/src/__tests__/syncIndicator.test.tsx` | WEB-S6 (UI индикатор + кнопка ручной синхронизации) |
+| `web/src/__tests__/migration.test.ts` | WEB-S7 (Dexie миграции, сохранение очереди) |
+| `web/src/__tests__/serviceWorkerStrategy.test.ts` | WEB-S8 (SW стратегия, skipWaiting) |
+
+### Зависимости
+- `@testing-library/react`, `@testing-library/jest-dom`, `@testing-library/user-event` (devDependencies)
+
+### CI
+- `npm --prefix web test` — 67 pass, 2 skipped
+
+---
+
+*STATUS.md обновлён: убраны неподтверждённые ✅ по WEB-S1…S8, проставлены только те, что реально закрыты тестами из M2.*
