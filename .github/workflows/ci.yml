@@ -81,8 +81,21 @@ jobs:
         shell: bash
         env:
           TASKLY_E2E_URL: http://localhost:8080
+          TASKLY_E2E_REQUIRED: "1"
           ANDROID_HOME: /usr/local/lib/android/sdk
-        run: ./gradlew :android:core:sync:testDebugUnitTest --tests '*RealServerSyncE2ETest' --console=plain 2>&1 | tee gradle-android-e2e.log; exit ${PIPESTATUS[0]}
+        run: |
+          ./gradlew :android:core:sync:testDebugUnitTest --tests '*RealServerSyncE2ETest' --console=plain 2>&1 | tee gradle-android-e2e.log
+          status=${PIPESTATUS[0]}
+          # Fail if the E2E did not actually run (skipped or filtered out)
+          python3 - <<'PY' || exit 1
+          import glob, xml.etree.ElementTree as ET
+          cases = [c for f in glob.glob("android/core/sync/build/test-results/**/*RealServerSyncE2ETest*.xml", recursive=True)
+                   for c in ET.parse(f).getroot().iter("testcase")]
+          ran = [c for c in cases if c.find("skipped") is None]
+          print(f"RealServerSyncE2ETest: {len(cases)} cases, {len(ran)} executed")
+          raise SystemExit(0 if ran else 1)
+          PY
+          exit $status
       - name: Report failures as annotations
         if: failure()
         run: python3 .github/scripts/report_failures.py gradle-shared.log gradle-server.log server-run.log vitest-e2e.log gradle-android-e2e.log

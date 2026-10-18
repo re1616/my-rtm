@@ -49,7 +49,7 @@ class OfflineSyncTest {
     fun tearDown() = db.close()
 
     @Test
-    fun createTask_writesTaskAndCreateOpTogether() = runBlocking {
+    fun createTask_writesTaskAndCreateOpTogether() = runBlocking<Unit> {
         val task = repo.createTask(user, """Say "hi" \ to Bob""")
 
         assertEquals(task.name, db.taskDao().getById(task.id)?.name)
@@ -65,7 +65,7 @@ class OfflineSyncTest {
     }
 
     @Test
-    fun completeAfterCreate_isSentInOrder() = runBlocking {
+    fun completeAfterCreate_isSentInOrder() = runBlocking<Unit> {
         val task = repo.createTask(user, "Pay rent")
         repo.setCompleted(task, user, completed = true)
 
@@ -76,7 +76,7 @@ class OfflineSyncTest {
     }
 
     @Test
-    fun acknowledgedOpsAreRemoved_rejectedOnesAreKeptAsFailed() = runBlocking {
+    fun acknowledgedOpsAreRemoved_rejectedOnesAreKeptAsFailed() = runBlocking<Unit> {
         val a = repo.createTask(user, "A")
         val b = repo.createTask(user, "B")
         api.reject = setOf(b.id)
@@ -90,7 +90,7 @@ class OfflineSyncTest {
     }
 
     @Test
-    fun networkFailure_keepsQueuePending() = runBlocking {
+    fun networkFailure_keepsQueuePending() = runBlocking<Unit> {
         repo.createTask(user, "Offline")
         api.offline = true
 
@@ -100,7 +100,7 @@ class OfflineSyncTest {
     }
 
     @Test
-    fun pull_appliesServerChangeLog() = runBlocking {
+    fun pull_appliesServerChangeLog() = runBlocking<Unit> {
         val id = "0b8a3c1e-0000-4000-8000-0000000000aa"
         api.changes = listOf(
             change(1, id, "create", """{"name":"From web","list_id":"L1","priority":2,"completed_at":null}"""),

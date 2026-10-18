@@ -52,6 +52,10 @@ class RealServerSyncE2ETest {
 
     @Before
     fun setUp() {
+        // CI sets TASKLY_E2E_REQUIRED so a missing server fails the build instead of skipping silently
+        if (System.getenv("TASKLY_E2E_REQUIRED") == "1") {
+            check(baseUrl != null) { "TASKLY_E2E_REQUIRED=1 but TASKLY_E2E_URL is not set" }
+        }
         assumeTrue("TASKLY_E2E_URL is not set — real-server E2E skipped", baseUrl != null)
         val context = ApplicationProvider.getApplicationContext<Context>()
         db = Room.inMemoryDatabaseBuilder(context, TasklyDatabase::class.java).build()
@@ -67,7 +71,7 @@ class RealServerSyncE2ETest {
     }
 
     @Test
-    fun taskCreatedOffline_reachesServer_andRemoteChangesComeBack() = runBlocking {
+    fun taskCreatedOffline_reachesServer_andRemoteChangesComeBack() = runBlocking<Unit> {
         val auth = api.register("android-e2e-${System.nanoTime()}@taskly.test", "Android123!")
 
         // 1. Offline: create and complete locally — nothing is sent yet
