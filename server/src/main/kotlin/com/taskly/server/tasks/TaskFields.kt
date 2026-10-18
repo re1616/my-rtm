@@ -27,6 +27,8 @@ object TaskFields {
     private val aliases = mapOf(
         "name" to "name",
         "listId" to "list_id", "list_id" to "list_id",
+        "parentId" to "parent_id", "parent_id" to "parent_id",
+        "locationId" to "location_id", "location_id" to "location_id",
         "priority" to "priority",
         "dueAt" to "due_at", "due_at" to "due_at",
         "dueHasTime" to "due_has_time", "due_has_time" to "due_has_time",
@@ -59,6 +61,14 @@ object TaskFields {
                     val id = uuid(el) ?: throw IllegalArgumentException("list_id cannot be null")
                     listOwnerCheck(id)
                     out[TasksTable.LIST_ID] = id
+                }
+                "parent_id" -> {
+                    val id = uuid(el)
+                    out[TasksTable.PARENT_ID] = id
+                }
+                "location_id" -> {
+                    val id = uuid(el)
+                    out[TasksTable.LOCATION_ID] = id
                 }
                 "priority" -> out[TasksTable.PRIORITY] = priority(el)
                 "due_at" -> out[TasksTable.DUE_AT] = timestamp(el, key)

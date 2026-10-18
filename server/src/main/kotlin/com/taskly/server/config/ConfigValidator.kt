@@ -59,4 +59,27 @@ object ConfigValidator {
             }
         }
     }
+
+    /**
+     * CFG-2: FCM and VAPID key validation.
+     * Outside dev, FCM_SERVER_KEY and VAPID keys must be non-empty and VAPID key at least 32 chars.
+     */
+    fun validatePush(fcmServerKey: String, vapidPublicKey: String, vapidPrivateKey: String, isDev: Boolean = false) {
+        if (isDev) return
+        if (fcmServerKey.isBlank()) {
+            throw IllegalStateException(
+                "FCM_SERVER_KEY must be set outside dev (TASKLY_ENV != dev); refusing to start without FCM server key"
+            )
+        }
+        if (vapidPublicKey.isBlank()) {
+            throw IllegalStateException(
+                "VAPID_PUBLIC_KEY must be set outside dev; refusing to start without VAPID public key"
+            )
+        }
+        if (vapidPrivateKey.isBlank() || vapidPrivateKey.length < 32) {
+            throw IllegalStateException(
+                "VAPID_PRIVATE_KEY must be at least 32 characters and set outside dev"
+            )
+        }
+    }
 }

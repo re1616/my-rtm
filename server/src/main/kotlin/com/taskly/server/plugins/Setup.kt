@@ -46,6 +46,7 @@ fun Application.configureStatusPages() {
                 is NotFoundException -> HttpStatusCode.NotFound
                 is ConflictException -> HttpStatusCode.Conflict
                 is TooManyRequestsException -> HttpStatusCode.TooManyRequests
+                is UpgradeRequiredException -> HttpStatusCode(426, "Upgrade Required")
                 is BadRequestException -> HttpStatusCode.BadRequest
                 is RateLimitExceededException -> HttpStatusCode.TooManyRequests
                 is IllegalArgumentException -> HttpStatusCode.BadRequest

@@ -88,16 +88,31 @@ object AuthService {
         val tokenHash = sha256(refreshToken)
         val record = ctx.selectFrom(RefreshTokensTable.TABLE)
             .where(RefreshTokensTable.TOKEN_HASH.eq(tokenHash))
-            .and(RefreshTokensTable.REVOKED.isFalse)
-            .and(RefreshTokensTable.EXPIRES_AT.gt(OffsetDateTime.now()))
             .fetchOne() ?: throw IllegalArgumentException("Invalid or expired refresh token")
 
+        // SEC-5: replay detection — reused token that was already revoked means theft
+        if (record.get(RefreshTokensTable.REVOKED)) {
+            // Replay: steal scenario — revoke all tokens for this user
+            val userId = record.get(RefreshTokensTable.USER_ID)
+            ctx.update(RefreshTokensTable.TABLE)
+                .set(RefreshTokensTable.REVOKED, true)
+                .where(RefreshTokensTable.USER_ID.eq(userId))
+                .execute()
+            throw IllegalArgumentException("Refresh token replay detected: all tokens revoked for security")
+        }
+
+        if (record.get(RefreshTokensTable.EXPIRES_AT).isBefore(OffsetDateTime.now())) {
+            throw IllegalArgumentException("Invalid or expired refresh token")
+        }
+
+        val userId = record.get(RefreshTokensTable.USER_ID)
+
+        // Revoke the used token before issuing a new one
         ctx.update(RefreshTokensTable.TABLE)
             .set(RefreshTokensTable.REVOKED, true)
             .where(RefreshTokensTable.ID.eq(record.get(RefreshTokensTable.ID)))
             .execute()
 
-        val userId = record.get(RefreshTokensTable.USER_ID)
         val accessToken = JWT.create()
             .withSubject("$userId")
             .withIssuedAt(Date.from(Instant.now()))

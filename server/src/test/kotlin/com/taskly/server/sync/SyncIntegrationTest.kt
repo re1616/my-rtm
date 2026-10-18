@@ -309,6 +309,143 @@ class SyncIntegrationTest {
         assertTrue(body.contains("Cursor Task"), "SYNC-7: Changes should contain the task name: $body")
     }
 
+    // ── SYNC-1: Savepoint isolation ──
+
+    @Test
+    fun `SYNC-1 batch with one bad op still applies good ops`() = testApplication {
+        application { moduleForTest() }
+
+        val email = "sync1-${System.currentTimeMillis()}@test.taskly"
+        val reg = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$email","password":"Test123!"}""")
+        }
+        val auth = json.decodeFromString<AuthMapper>(reg.bodyAsText())
+        val token = auth.accessToken
+
+        // Send a batch with: one valid op, one invalid (bad entity type), one valid
+        val body = """{
+            "ops":[
+                {"opId":"s1-a","scope":"user:${auth.userId}","entity":"task","entityId":"00000000-0000-0000-0000-0000000c0a1","type":"create","fields":{"name":"Good Task 1","listId":"00000000-0000-0000-0000-000000000001"}},
+                {"opId":"s1-b","scope":"user:${auth.userId}","entity":"invalid_entity","entityId":"00000000-0000-0000-0000-0000000c0a2","type":"create","fields":{"name":"Bad Op"}},
+                {"opId":"s1-c","scope":"user:${auth.userId}","entity":"task","entityId":"00000000-0000-0000-0000-0000000c0a3","type":"create","fields":{"name":"Good Task 2","listId":"00000000-0000-0000-0000-000000000001"}}
+            ]}"""
+
+        val resp = client.post("/v1/sync") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(token)
+            setBody(body)
+        }
+        assertEquals(HttpStatusCode.OK, resp.status)
+        val results = json.decodeFromString<SyncResults>(resp.bodyAsText())
+
+        // Should have 3 results
+        assertEquals(3, results.results.size, "SYNC-1: Should return per-op results for all 3 ops")
+        // First and third should be ok
+        assertEquals("ok", results.results[0].status, "SYNC-1: First good op should succeed")
+        assertEquals("ok", results.results[2].status, "SYNC-1: Third good op should succeed")
+        // Second should be rejected
+        assertNotEquals("ok", results.results[1].status, "SYNC-1: Invalid op should be rejected")
+    }
+
+    // ── SYNC-6: Deltas include lists, tags, locations ──
+
+    @Test
+    fun `SYNC-6 deltas include list tag location create`() = testApplication {
+        application { moduleForTest() }
+
+        val email = "sync6a-${System.currentTimeMillis()}@test.taskly"
+        val reg = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$email","password":"Test123!"}""")
+        }
+        val auth = json.decodeFromString<AuthMapper>(reg.bodyAsText())
+        val token = auth.accessToken
+
+        // Create a list via sync
+        val listId = "00000000-0000-0000-0000-0000000b0b1"
+        client.post("/v1/sync") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(token)
+            setBody("""{"ops":[{"opId":"sync6-list","scope":"user:${auth.userId}","entity":"list","entityId":"$listId","type":"create","fields":{"name":"Sync List"}}]}""")
+        }
+
+        // Create a tag via sync
+        val tagId = "00000000-0000-0000-0000-0000000b0b2"
+        client.post("/v1/sync") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(token)
+            setBody("""{"ops":[{"opId":"sync6-tag","scope":"user:${auth.userId}","entity":"tag","entityId":"$tagId","type":"create","fields":{"name":"sync-tag"}}]}""")
+        }
+
+        // Create a location via sync
+        val locId = "00000000-0000-0000-0000-0000000b0b3"
+        client.post("/v1/sync") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(token)
+            setBody("""{"ops":[{"opId":"sync6-loc","scope":"user:${auth.userId}","entity":"location","entityId":"$locId","type":"create","fields":{"name":"Sync Location"}}]}""")
+        }
+
+        // GET /sync/changes should return all three
+        val resp = client.get("/v1/sync/changes?scope=user:${auth.userId}&after=0") {
+            bearerAuth(token)
+        }
+        assertEquals(HttpStatusCode.OK, resp.status)
+        val body = resp.bodyAsText()
+        assertTrue(body.contains("Sync List"), "SYNC-6: Changes should contain the list name")
+        assertTrue(body.contains("sync-tag"), "SYNC-6: Changes should contain the tag name")
+        assertTrue(body.contains("Sync Location"), "SYNC-6: Changes should contain the location name")
+    }
+
+    // ── SYNC-7: Sync version header ──
+
+    @Test
+    fun `SYNC-7 current sync version returns 200`() = testApplication {
+        application { moduleForTest() }
+
+        val email = "sync7v-${System.currentTimeMillis()}@test.taskly"
+        val reg = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$email","password":"Test123!"}""")
+        }
+        val auth = json.decodeFromString<AuthMapper>(reg.bodyAsText())
+        val token = auth.accessToken
+
+        val resp = client.post("/v1/sync") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(token)
+            headers { append("Taskly-Sync-Version", "2") }
+            setBody("""{"ops":[]}""")
+        }
+        assertEquals(HttpStatusCode.OK, resp.status,
+            "SYNC-7: Current sync version should be accepted")
+    }
+
+    @Test
+    fun `SYNC-7 old sync version returns 426`() = testApplication {
+        application { moduleForTest() }
+
+        val email = "sync7o-${System.currentTimeMillis()}@test.taskly"
+        val reg = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$email","password":"Test123!"}""")
+        }
+        val auth = json.decodeFromString<AuthMapper>(reg.bodyAsText())
+        val token = auth.accessToken
+
+        // Version 0 (too old)
+        val resp = client.post("/v1/sync") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(token)
+            headers { append("Taskly-Sync-Version", "0") }
+            setBody("""{"ops":[]}""")
+        }
+        assertEquals(HttpStatusCode(426, "Upgrade Required"), resp.status,
+            "SYNC-7: Version 0 should receive 426 Upgrade Required")
+        assertTrue(resp.bodyAsText().contains("too old"),
+            "SYNC-7: 426 response should mention the version is too old")
+    }
+
     // DTOs
     @Serializable
     data class AuthMapper(val accessToken: String, val refreshToken: String? = null, val userId: String)

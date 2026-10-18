@@ -30,6 +30,12 @@ data class SyncConfig(
     val maxBatchSize: Int
 )
 
+data class PushConfig(
+    val fcmServerKey: String,
+    val vapidPublicKey: String,
+    val vapidPrivateKey: String
+)
+
 data class RateLimitConfig(
     val tokensPerSecond: Int,
     val burstSize: Int,
@@ -73,6 +79,12 @@ object Config {
         maxBatchSize = config.getInt("sync.maxBatchSize")
     )
 
+    val push = PushConfig(
+        fcmServerKey = config.getString("fcmServerKey"),
+        vapidPublicKey = config.getString("vapidPublicKey"),
+        vapidPrivateKey = config.getString("vapidPrivateKey"),
+    ).also { validatePush(it, isDev) }
+
     val rateLimit = RateLimitConfig(
         tokensPerSecond = config.getInt("rateLimit.tokensPerSecond"),
         burstSize = config.getInt("rateLimit.burstSize"),
@@ -90,4 +102,21 @@ fun validateAuth(auth: AuthConfig, isDev: Boolean) {
         "JWT_SECRET must be set outside dev (TASKLY_ENV != dev); refusing to start with the built-in dev secret"
     }
     require(auth.jwtSecret.length >= 32) { "JWT_SECRET must be at least 32 characters" }
+}
+
+/**
+ * CFG-2: FCM and VAPID key validation.
+ * Outside dev, FCM_SERVER_KEY and VAPID keys must be non-empty and VAPID key at least 32 chars.
+ */
+fun validatePush(push: PushConfig, isDev: Boolean) {
+    if (isDev) return
+    require(push.fcmServerKey.isNotBlank()) {
+        "FCM_SERVER_KEY must be set outside dev (TASKLY_ENV != dev); refusing to start without FCM server key"
+    }
+    require(push.vapidPublicKey.isNotBlank()) {
+        "VAPID_PUBLIC_KEY must be set outside dev; refusing to start without VAPID public key"
+    }
+    require(push.vapidPrivateKey.isNotBlank() && push.vapidPrivateKey.length >= 32) {
+        "VAPID_PRIVATE_KEY must be at least 32 characters and set outside dev"
+    }
 }
