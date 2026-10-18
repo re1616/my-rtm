@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.kapt)
 }
 
 android {
@@ -42,6 +43,20 @@ android {
     }
 }
 
+configurations.configureEach {
+    // Annotation processors (Room, Hilt) bundle a kotlin-metadata-jvm that predates Kotlin 2.4;
+    // force the version matching the compiler so they can read 2.4 class metadata.
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.jetbrains.kotlin" && requested.name == "kotlin-metadata-jvm") {
+            useVersion(libs.versions.kotlin.get())
+        }
+    }
+}
+
+kapt {
+    correctErrorTypes = true
+}
+
 dependencies {
     implementation(project(":android:core:database"))
     implementation(project(":android:core:network"))
@@ -67,10 +82,12 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.datastore.preferences)
 
-    // Hilt deps — ready for activation when Kotlin 2.4+ is compatible
-    // implementation(libs.hilt.android)
-    // kapt(libs.hilt.compiler)
-    // implementation(libs.hilt.navigation.compose)
+    // Hilt (applied without the Gradle plugin: classes extend the generated Hilt_* bases)
+    implementation(libs.hilt.android)
+    kapt(libs.hilt.compiler)
+    kapt(libs.kotlin.metadata.jvm)
+    implementation(libs.workmanager)
+    implementation(libs.ktor.client.core)
 
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)

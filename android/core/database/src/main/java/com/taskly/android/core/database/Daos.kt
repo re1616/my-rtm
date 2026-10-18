@@ -67,7 +67,7 @@ interface TagDao {
 
 @Dao
 interface SyncQueueDao {
-    @Query("SELECT * FROM sync_queue WHERE status = 'pending' ORDER BY created_at ASC")
+    @Query("SELECT * FROM sync_queue WHERE status = 'pending' ORDER BY rowid ASC")
     suspend fun getPending(): List<SyncOperationEntity>
 
     @Query("SELECT COUNT(*) FROM sync_queue WHERE status = 'pending'")
