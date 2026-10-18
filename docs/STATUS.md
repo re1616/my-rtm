@@ -14,14 +14,14 @@
 | ID | Статус | Тест / файл |
 | --- | --- | --- |
 | CFG-1 | ✅ готово (тест) | `server/src/test/.../ConfigTest.kt` — env override |
-| CFG-2 | ✅ готово (тест) | `server/src/test/.../config/ConfigTest.kt` — JWT guard ≥32b |
+| CFG-2 | ✅ готово (тест) | `config/ConfigTest.kt` — JWT ≥32 байт, не dev-секрет; ключи FCM/VAPID обязательны вне dev |
 | CFG-3 | ✅ готово (тест) | `server/src/test/.../IntegrationTest.kt` — БД `_test` |
-| CFG-4 | 🔶 каркас | Сборка по окружениям не настроена |
+| CFG-4 | 🔶 каркас | Ручной аудит web/android без секретов; автоматического сканера (gitleaks) в CI нет, сборка по окружениям не настроена |
 | SEC-1 | ✅ готово (тест) | `server/src/test/.../security/SecurityTest.kt` — 409 на чужой id |
-| SEC-2 | 🔶 каркас | Проверка ссылок есть, coverage неполный |
+| SEC-2 | ✅ готово (тест) | `SecurityTest` — чужие `list_id`/`parent_id`/`location_id` в sync → 403, некорректный id → отклонение. REST не принимает `parent_id`/`location_id` |
 | SEC-3 | ✅ готово (тест) | `SyncService.getChanges()` — scope на сервере |
-| SEC-4 | 🔶 каркас | Матрица описана, тесты неполные |
-| SEC-5 | ✅ готово (тест) | `AuthRoutes.kt` — refresh с ротацией |
+| SEC-4 | 🔶 частично | `SecurityTest` — владелец vs посторонний по задачам, спискам, sync. Роли «участник edit/view» появятся с общими списками (v1.1) — полной матрицы пока нет |
+| SEC-5 | ✅ готово (тест) | `SecurityTest` — ротация, повтор → отзыв всей цепочки, параллельные запросы одним токеном → не более одной ротации |
 | SEC-6 | ✅ готово (тест) | `RateLimiter` на всех маршрутах, 429 |
 | SEC-7 | ✅ готово (тест) | `FeaturesIntegrationTest.kt` — `/v1/features` |
 
@@ -29,13 +29,13 @@
 
 | ID | Статус | Тест / файл |
 | --- | --- | --- |
-| SYNC-1 | ✅ готово (тест) | Savepoint — `SyncIntegrationTest.kt` |
+| SYNC-1 | 🔶 частично | Savepoint на операцию и результаты `ok`/`rejected` — `SyncIntegrationTest`. Статус `conflict_resolved` не возвращается |
 | SYNC-2 | ✅ готово (тест) | Идемпотентность `(user_id, op_id)` |
 | SYNC-3 | 🔶 каркас | MergeEngine существует |
 | SYNC-4 | ✅ готово (тест) | `RecurrenceCountIntegrationTest.kt` — COUNT=3, 3 completes, стоп |
 | SYNC-5 | ✅ готово (тест) | `QueryParser`/`SqlBuilder` — `SyncIntegrationTest.kt` |
-| SYNC-6 | ❌ не начато | Клиент не подтягивает чужие списки |
-| SYNC-7 | ❌ не начато | Заголовок `Taskly-Sync-Version` |
+| SYNC-6 | 🔶 частично | Сервер: дельты списков, тегов, локаций — `SyncIntegrationTest`. Клиенты: Android применяет задачи и списки, теги и локации — нет; веб — проверить в M2 |
+| SYNC-7 | 🔶 частично | Сервер: `Taskly-Sync-Version`, 426 на неподдерживаемую — `SyncIntegrationTest`. Клиенты заголовок пока не шлют (без заголовка = текущая версия) |
 
 ## 3. Веб
 

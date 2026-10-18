@@ -543,6 +543,34 @@ class SecurityTest {
             "SEC-5: After replay detection, the rotated token should also be revoked")
     }
 
+    @Test
+    fun `SEC-5 concurrent refresh with the same token rotates at most once`() = testApplication {
+        application { moduleForTest() }
+
+        val reg = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"sec5c-${System.nanoTime()}@test.taskly","password":"Test123!"}""")
+        }
+        val token = json.decodeFromString<AuthMapper>(reg.bodyAsText()).refreshToken
+            ?: throw AssertionError("Should have refresh token")
+
+        // Fire the same token from several threads at once
+        val threads = 8
+        val start = java.util.concurrent.CountDownLatch(1)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(threads)
+        val results = (1..threads).map {
+            pool.submit<Boolean> {
+                start.await()
+                runCatching { AuthService.refreshToken(token) }.isSuccess
+            }
+        }
+        start.countDown()
+        val successes = results.count { it.get() }
+        pool.shutdown()
+
+        assertTrue(successes <= 1, "SEC-5: one refresh token must rotate at most once, got $successes")
+    }
+
     // DTOs
     @Serializable
     data class AuthMapper(val accessToken: String, val refreshToken: String? = null, val userId: String)
