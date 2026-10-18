@@ -1,164 +1,225 @@
 // WEB-S8: Service Worker: стратегия «новая версия готова — обновить»,
 //         без принудительной перезагрузки посреди ввода.
-import { describe, it, expect, vi, beforeEach } from 'vitest';
-
-/**
- * Тестируем стратегию обновления Service Worker:
- * - При обнаружении новой версии SW — показать уведомление пользователю
- * - Не вызывать location.reload() при активном вводе
- * - skipWaiting() вызывается только после подтверждения пользователя
- */
+//
+// Тестируем реальную реализацию SWUpdateStrategy из src/.
+// Mock только на границе (ServiceWorkerRegistration, ServiceWorker) —
+// логика состояний и проверка активного ввода тестируется настоящая.
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { SWUpdateStrategy, isInputFocused } from '../features/sync/swUpdateStrategy';
 
 describe('WEB-S8: Service Worker update strategy', () => {
-  let mockRegistration: Partial<ServiceWorkerRegistration>;
-  let mockSW: Partial<ServiceWorker>;
+  let mockRegistration: Record<string, unknown>;
+  let mockSW: Record<string, unknown>;
   let updateFoundHandlers: Array<() => void>;
   let stateChangeHandlers: Array<() => void>;
-  let skipWaitingCalled: boolean;
+  let skipWaitingResolved: boolean;
 
   beforeEach(() => {
     updateFoundHandlers = [];
     stateChangeHandlers = [];
-    skipWaitingCalled = false;
+    skipWaitingResolved = false;
 
-    const swMock: Record<string, unknown> = {
+    mockSW = {
       state: 'installing',
-      addEventListener: vi.fn((event: string, handler: EventListenerOrEventListenerObject) => {
+      addEventListener: vi.fn((event: string, handler: unknown) => {
         if (event === 'statechange') stateChangeHandlers.push(handler as () => void);
       }),
       removeEventListener: vi.fn(),
-      postMessage: vi.fn(),
       skipWaiting: vi.fn().mockImplementation(() => {
-        skipWaitingCalled = true;
+        skipWaitingResolved = true;
         return Promise.resolve();
       }),
     };
 
-    mockSW = swMock as unknown as Partial<ServiceWorker>;
-
+    // Создаём registration с правильными полями, типами
     mockRegistration = {
-      installing: mockSW as ServiceWorker,
+      installing: mockSW,
       waiting: null,
-      active: { state: 'activated' } as ServiceWorker,
-      updateViaCache: 'none' as ServiceWorkerUpdateViaCache,
-      addEventListener: vi.fn((event: string, handler: EventListenerOrEventListenerObject) => {
+      active: { state: 'activated' },
+      updateViaCache: 'none',
+      addEventListener: vi.fn((event: string, handler: unknown) => {
         if (event === 'updatefound') updateFoundHandlers.push(handler as () => void);
       }),
       removeEventListener: vi.fn(),
-      unregister: vi.fn().mockResolvedValue(true),
-      update: vi.fn().mockResolvedValue(undefined),
-      scope: '/',
     };
   });
 
-  it('регистрирует Service Worker и отслеживает обновления', () => {
-    // Симуляция регистрации SW
-    const updateCallback = vi.fn();
-
-    // Регистрируем обработчик updatefound
-    mockRegistration.addEventListener!('updatefound', () => {
-      updateCallback();
-    });
-
-    // Симулируем событие updatefound
-    updateFoundHandlers.forEach((h) => h());
-
-    expect(updateCallback).toHaveBeenCalled();
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it('не вызывает location.reload при активации нового SW (нет принудительной перезагрузки)', () => {
+  it('при updatefound переходит в состояние update-ready', () => {
+    const strategy = new SWUpdateStrategy(
+      mockRegistration as unknown as ServiceWorkerRegistration,
+    );
+
+    expect(strategy.state).toBe('idle');
+
+    // Симулируем updatefound
+    expect(updateFoundHandlers.length).toBe(1);
+    updateFoundHandlers[0]();
+
+    expect(strategy.state).toBe('update-ready');
+  });
+
+  it('confirmUpdate: вызывает skipWaiting и переходит в activated', async () => {
+    const strategy = new SWUpdateStrategy(
+      mockRegistration as unknown as ServiceWorkerRegistration,
+    );
+
+    // Сначала получаем updatefound → update-ready
+    expect(updateFoundHandlers.length).toBe(1);
+    updateFoundHandlers[0]();
+    expect(strategy.state).toBe('update-ready');
+
+    // Подтверждаем
+    const confirmPromise = strategy.confirmUpdate();
+
+    // Симулируем statechange → activated
+    mockSW.state = 'activated';
+    stateChangeHandlers.forEach((h) => h());
+
+    await confirmPromise;
+    expect(strategy.state).toBe('activated');
+    expect(skipWaitingResolved).toBe(true);
+  });
+
+  it('confirmUpdate без updatefound — ничего не делает', async () => {
+    const strategy = new SWUpdateStrategy(
+      mockRegistration as unknown as ServiceWorkerRegistration,
+    );
+
+    // Состояние idle — confirmUpdate должен быть no-op
+    await strategy.confirmUpdate();
+    expect(strategy.state).toBe('idle');
+    expect(skipWaitingResolved).toBe(false);
+  });
+
+  it('isInputFocused: true когда фокус на input', () => {
+    // Создаём input и ставим на него фокус
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+
+    expect(isInputFocused()).toBe(true);
+
+    document.body.removeChild(input);
+  });
+
+  it('isInputFocused: false когда фокус на div', () => {
+    const div = document.createElement('div');
+    document.body.appendChild(div);
+    div.focus();
+
+    expect(isInputFocused()).toBe(false);
+
+    document.body.removeChild(div);
+  });
+
+  it('isInputFocused: true когда фокус на textarea', () => {
+    const ta = document.createElement('textarea');
+    document.body.appendChild(ta);
+    ta.focus();
+
+    expect(isInputFocused()).toBe(true);
+
+    document.body.removeChild(ta);
+  });
+
+  it('isInputFocused: true когда contenteditable', () => {
+    const editable = document.createElement('div');
+    editable.setAttribute('contenteditable', 'true');
+    document.body.appendChild(editable);
+    editable.focus();
+
+    expect(isInputFocused()).toBe(true);
+
+    document.body.removeChild(editable);
+  });
+
+  it('стратегия: при activated и НЕ вводе вызывается reload', async () => {
     const reloadSpy = vi.fn();
-    const origReload = window.location.reload;
-    // В jsdom location.reload может не существовать
-    Object.defineProperty(window, 'location', {
-      value: { reload: reloadSpy, href: 'https://taskly.app' },
-      writable: true,
-    });
 
-    // Стратегия: новый SW активируется, но не перезагружает страницу
-    // Пользователь сам обновит, когда будет готов (или после потери фокуса)
-    if (mockSW.state === 'installing') {
-      // В production: при statechange waiting → активируется через skipWaiting
-      // После skipWaiting страница получит controlchange, но reload не вызывается
-    }
+    const strategy = new SWUpdateStrategy(
+      mockRegistration as unknown as ServiceWorkerRegistration,
+      reloadSpy,
+    );
 
+    // Фокус НЕ на input
+    const div = document.createElement('div');
+    div.setAttribute('id', 'non-input');
+    document.body.appendChild(div);
+    div.focus();
+
+    // updatefound → confirm
+    expect(updateFoundHandlers.length).toBe(1);
+    updateFoundHandlers[0]();
+    expect(strategy.state).toBe('update-ready');
+
+    const confirmPromise = strategy.confirmUpdate();
+
+    // activated
+    mockSW.state = 'activated';
+    stateChangeHandlers.forEach((h) => h());
+
+    await confirmPromise;
+    expect(reloadSpy).toHaveBeenCalledTimes(1);
+
+    document.body.removeChild(div);
+  });
+
+  it('стратегия: при activated и фокусе на input reload НЕ вызывается', async () => {
+    const reloadSpy = vi.fn();
+
+    const strategy = new SWUpdateStrategy(
+      mockRegistration as unknown as ServiceWorkerRegistration,
+      reloadSpy,
+    );
+
+    // Фокус на input — reload вызываться НЕ должен
+    const input = document.createElement('input');
+    document.body.appendChild(input);
+    input.focus();
+
+    // updatefound → confirm
+    expect(updateFoundHandlers.length).toBe(1);
+    updateFoundHandlers[0]();
+    expect(strategy.state).toBe('update-ready');
+
+    const confirmPromise = strategy.confirmUpdate();
+
+    // activated
+    mockSW.state = 'activated';
+    stateChangeHandlers.forEach((h) => h());
+
+    await confirmPromise;
+    // reload НЕ вызван, т.к. пользователь печатает
     expect(reloadSpy).not.toHaveBeenCalled();
 
-    Object.defineProperty(window, 'location', {
-      value: { reload: origReload, href: 'https://taskly.app' },
-      writable: true,
-      configurable: true,
-    });
+    document.body.removeChild(input);
   });
 
-  it('новая версия: skipWaiting вызывается только после подтверждения пользователя', async () => {
-    // Симуляция: новая версия готова, ждём подтверждения
-    let userConfirmed = false;
+  it('onStateChange можно отписаться', async () => {
+    const strategy = new SWUpdateStrategy(
+      mockRegistration as unknown as ServiceWorkerRegistration,
+    );
+    const fn = vi.fn();
+    const unsubscribe = strategy.onStateChange(fn);
+    unsubscribe();
 
-    // Обнаружено обновление
-    const onUpdateReady = vi.fn();
-
-    // Показываем уведомление пользователю (симуляция)
-    const showUpdateNotification = () => {
-      onUpdateReady();
-      return Promise.resolve();
-    };
-
-    // Пользователь НЕ подтверждает
-    // skipWaiting НЕ вызывается
-    expect(skipWaitingCalled).toBe(false);
-
-    // Пользователь подтверждает
-    userConfirmed = true;
-    if (userConfirmed) {
-      await mockSW.skipWaiting!();
-    }
-
-    expect(skipWaitingCalled).toBe(true);
+    updateFoundHandlers[0]();
+    expect(fn).not.toHaveBeenCalled();
   });
 
-  it('новая версия без подтверждения: не прерывает ввод пользователя', async () => {
-    // Пользователь вводит текст — симуляция
-    let isUserEditing = true;
+  it('reset возвращает в idle из любого состояния', () => {
+    const strategy = new SWUpdateStrategy(
+      mockRegistration as unknown as ServiceWorkerRegistration,
+    );
 
-    // Обновление обнаружено, но пользователь редактирует задачу
-    // Принудительная перезагрузка НЕ вызывается
-    const reloadSpy = vi.fn();
-    Object.defineProperty(window, 'location', {
-      value: { reload: reloadSpy },
-      writable: true,
-      configurable: true,
-    });
+    updateFoundHandlers[0]();
+    expect(strategy.state).toBe('update-ready');
 
-    if (isUserEditing) {
-      // Не вызываем reload
-    }
-
-    expect(reloadSpy).not.toHaveBeenCalled();
-
-    // Пользователь закончил ввод
-    isUserEditing = false;
-    // Только тогда можно активировать обновление
-    expect(isUserEditing).toBe(false);
-  });
-
-  it('стратегия обновления: после потери фокуса можно перезагрузить', () => {
-    const reloadSpy = vi.fn();
-    Object.defineProperty(window, 'location', {
-      value: { reload: reloadSpy },
-      writable: true,
-      configurable: true,
-    });
-
-    let isUserEditing = false;
-    let updateConfirmed = true;
-
-    // Если пользователь не редактирует и подтвердил → reload
-    if (!isUserEditing && updateConfirmed) {
-      // Можно перезагрузить
-    }
-
-    // НЕ вызываем reload в тесте, т.к. стратегия — уведомление, не принуждение
-    expect(reloadSpy).not.toHaveBeenCalled();
+    strategy.reset();
+    expect(strategy.state).toBe('idle');
   });
 });

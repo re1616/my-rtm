@@ -2,86 +2,14 @@
 //         остальные получают изменения через BroadcastChannel;
 //         переход роли ≤ 2 с.
 //
-// В jsdom и fake-indexeddb Web Locks API недоступен, поэтому тестируем
-// абстракцию: LeaderElector + BroadcastChannel.
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-
-interface SyncEvent {
-  type: 'sync-complete' | 'state-change';
-  payload: unknown;
-}
-
-/**
- * Абстракция управления лидером синхронизации.
- * В production использует Web Locks API; в тестах — флаг.
- */
-class LeaderElector {
-  private _isLeader = false;
-  private listeners: Array<(leader: boolean) => void> = [];
-
-  get isLeader(): boolean {
-    return this._isLeader;
-  }
-
-  /** Пытаемся стать лидером. В production: navigator.locks.request('sync-leader'). */
-  async tryClaim(): Promise<boolean> {
-    this._isLeader = true;
-    this._notify();
-    return true;
-  }
-
-  /** Отказаться от лидерства. */
-  async yield(): Promise<void> {
-    this._isLeader = false;
-    this._notify();
-  }
-
-  onLeaderChange(fn: (leader: boolean) => void): () => void {
-    this.listeners.push(fn);
-    return () => {
-      this.listeners = this.listeners.filter((l) => l !== fn);
-    };
-  }
-
-  private _notify(): void {
-    for (const fn of this.listeners) fn(this._isLeader);
-  }
-}
-
-/**
- * Канал для передачи событий синхронизации между вкладками.
- * В production: BroadcastChannel('sync-channel'); в тестах — in-memory.
- */
-class SyncChannel {
-  private listeners: Array<(event: SyncEvent) => void> = [];
-  private static _instances: SyncChannel[] = [];
-
-  constructor() {
-    SyncChannel._instances.push(this);
-  }
-
-  /** Отправить событие всем остальным вкладкам (кроме себя). */
-  broadcast(event: SyncEvent): void {
-    for (const inst of SyncChannel._instances) {
-      if (inst !== this) inst._receive(event);
-    }
-  }
-
-  onMessage(fn: (event: SyncEvent) => void): () => void {
-    this.listeners.push(fn);
-    return () => {
-      this.listeners = this.listeners.filter((l) => l !== fn);
-    };
-  }
-
-  private _receive(event: SyncEvent): void {
-    for (const fn of this.listeners) fn(event);
-  }
-
-  static reset(): void {
-    SyncChannel._instances = [];
-  }
-}
+// Тестируем реальную реализацию LeaderElector и SyncChannel из src/.
+// Mock только на границе (navigator.locks, BroadcastChannel) — логика тестируется настоящая.
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import {
+  LeaderElector,
+  SyncChannel,
+  type SyncEvent,
+} from '../features/sync/leader';
 
 describe('WEB-S5: leader election + BroadcastChannel', () => {
   beforeEach(() => {
