@@ -63,33 +63,19 @@ fun Route.taskRoutes() {
         val userId = requireUserId(call)
         val taskId = call.parameters["id"] ?: return@patch call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing task id"))
         val request = call.receive<UpdateTaskRequest>()
-        try {
-            val task = TaskService.update(userId, taskId, request)
-            call.respond(HttpStatusCode.OK, task)
-        } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.BadRequest, ErrorResponse(e.message!!))
-        }
+        call.respond(HttpStatusCode.OK, TaskService.update(userId, taskId, request))
     }
 
     delete("/v1/tasks/{id}") {
         val userId = requireUserId(call)
         val taskId = call.parameters["id"] ?: return@delete call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing task id"))
-        try {
-            TaskService.delete(userId, taskId)
-            call.respond(HttpStatusCode.NoContent)
-        } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.NotFound, ErrorResponse(e.message!!))
-        }
+        TaskService.delete(userId, taskId)
+        call.respond(HttpStatusCode.NoContent)
     }
 
     post("/v1/tasks/{id}/complete") {
         val userId = requireUserId(call)
         val taskId = call.parameters["id"] ?: return@post call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing task id"))
-        try {
-            val result = TaskService.complete(userId, taskId)
-            call.respond(HttpStatusCode.OK, result)
-        } catch (e: IllegalArgumentException) {
-            call.respond(HttpStatusCode.NotFound, ErrorResponse(e.message!!))
-        }
+        call.respond(HttpStatusCode.OK, TaskService.complete(userId, taskId))
     }
 }

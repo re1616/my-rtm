@@ -110,7 +110,7 @@ describe('Sync Queue', () => {
   it('marks sync operation status', async () => {
     const pending = await getPendingSyncOps();
     if (pending.length > 0) {
-      await markSyncOpStatus(pending[0].opId, 'sent');
+      await markSyncOpStatus(pending[0].opId, 'sending');
       const checkAgain = await getPendingSyncOps();
       expect(checkAgain.find((op) => op.opId === pending[0].opId)).toBeUndefined();
     }

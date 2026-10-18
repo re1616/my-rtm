@@ -11,8 +11,11 @@ kotlin {
     }
 
     js {
+        // Library build consumed by the web app (web/ imports it as "@taskly/shared"):
+        // ES module + TypeScript declarations in build/dist/js/productionLibrary.
         nodejs()
-        binaries.executable()
+        binaries.library()
+        useEsModules()
         generateTypeScriptDefinitions()
         compilations["main"].packageJson {
             customField("name", "@taskly/shared")
@@ -37,4 +40,10 @@ kotlin {
         val jsMain by getting
         val jsTest by getting
     }
+}
+// Builds the JS library for the web app: ./gradlew :shared:webLibrary
+tasks.register("webLibrary") {
+    group = "build"
+    description = "Builds the shared module as an ES module + .d.ts for web/ (build/dist/js/productionLibrary)"
+    dependsOn("jsNodeProductionLibraryDistribution")
 }

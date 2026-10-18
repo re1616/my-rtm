@@ -2,6 +2,8 @@ package com.taskly.server.websocket
 
 import com.taskly.server.auth.AuthService
 import com.taskly.server.redis.RedisService
+import com.taskly.server.sync.ChangeLog
+import java.util.UUID
 import io.ktor.server.application.*
 import io.ktor.server.routing.*
 import io.ktor.server.websocket.*
@@ -44,6 +46,7 @@ object WebSocketService {
     suspend fun handleSession(session: DefaultWebSocketServerSession) {
         var userId: String? = null
         var scopes = mutableSetOf<String>()
+        var pubSub: JedisPubSub? = null
 
         try {
             for (frame in session.incoming) {
@@ -73,16 +76,35 @@ object WebSocketService {
                             continue
                         }
 
+                        if (userId != null) {
+                            session.send(Frame.Text(json.encodeToString(WsMessage("error", "Already authenticated"))))
+                            continue
+                        }
+                        // Scopes are validated against what the user may read; never trusted as-is
+                        val allowed = ChangeLog.allowedScopes(UUID.fromString(uid))
+                        val requested = authData.scopes?.toSet() ?: allowed
+                        val denied = requested - allowed
+                        if (denied.isNotEmpty()) {
+                            session.send(Frame.Text(json.encodeToString(WsMessage("error", "Scopes not allowed: ${denied.joinToString()}"))))
+                            continue
+                        }
                         userId = uid
-                        scopes = (authData.scopes?.toMutableSet() ?: mutableSetOf("user:$uid"))
+                        scopes = requested.toMutableSet()
 
                         // Register session
                         userSessions.getOrPut(uid) { ConcurrentHashMap.newKeySet() }.add(session)
                         sessionScopes[session] = scopes
 
-                        // Start Redis listener for this user in a background coroutine
+                        // Start Redis listener for this user; unsubscribed when the socket closes
+                        val listener = createPubSub(session)
+                        pubSub = listener
+                        val channels = scopes.map { ChangeLog.channel(UUID.fromString(uid), it) }.toTypedArray()
                         CoroutineScope(Dispatchers.IO).launch {
-                            listenForUpdates(uid, scopes, session)
+                            try {
+                                RedisService.subscribe(listener, *channels)
+                            } catch (e: Exception) {
+                                log.warn("Redis subscription ended: ${e.message}")
+                            }
                         }
 
                         session.send(Frame.Text(json.encodeToString(WsMessage("auth_ok", """{"userId":"$uid"}"""))))
@@ -99,7 +121,14 @@ object WebSocketService {
                             session.send(Frame.Text(json.encodeToString(WsMessage("error", "Invalid subscribe payload"))))
                             continue
                         }
-                        scopes.add(subData.scope)
+                        if (subData.scope !in ChangeLog.allowedScopes(UUID.fromString(userId))) {
+                            session.send(Frame.Text(json.encodeToString(WsMessage("error", "Scope not allowed: ${subData.scope}"))))
+                            continue
+                        }
+                        if (subData.scope !in scopes) {
+                            scopes.add(subData.scope)
+                            pubSub?.subscribe(ChangeLog.channel(UUID.fromString(userId), subData.scope))
+                        }
                         sessionScopes[session] = scopes
                         session.send(Frame.Text(json.encodeToString(WsMessage("subscribed", """{"scope":"${subData.scope}"}"""))))
                     }
@@ -116,7 +145,12 @@ object WebSocketService {
         } catch (e: Exception) {
             log.warn("WebSocket session error: ${e.message}")
         } finally {
-            // Cleanup on disconnect
+            // Cleanup on disconnect: release the blocking Redis subscription and its connection
+            try {
+                if (pubSub?.isSubscribed == true) pubSub?.unsubscribe()
+            } catch (e: Exception) {
+                log.debug("Unsubscribe failed: ${e.message}")
+            }
             if (userId != null) {
                 userSessions[userId]?.remove(session)
                 if (userSessions[userId]?.isEmpty() == true) {
@@ -127,33 +161,16 @@ object WebSocketService {
         }
     }
 
-    /**
-     * Listen for Redis pub/sub messages for the user's scopes in a background thread.
-     * Jedis.subscribe is blocking, so this runs on IO dispatcher.
-     */
-    private suspend fun listenForUpdates(
-        userId: String,
-        scopes: MutableSet<String>,
-        session: DefaultWebSocketServerSession
-    ) {
-        val channels = scopes.map { "sync:$userId:$it" }.toTypedArray()
-
-        // Run the blocking Redis subscribe on a separate thread
-        withContext(Dispatchers.IO) {
-            val pubSub = object : JedisPubSub() {
-                override fun onMessage(channel: String, message: String) {
-                    try {
-                        CoroutineScope(Dispatchers.Default).launch {
-                            session.send(Frame.Text(json.encodeToString(WsMessage("sync_update", message))))
-                        }
-                    } catch (e: Exception) {
-                        // Session may be closed
-                    }
+    /** Forwards Redis messages for this session to the socket. */
+    private fun createPubSub(session: DefaultWebSocketServerSession): JedisPubSub = object : JedisPubSub() {
+        override fun onMessage(channel: String, message: String) {
+            session.launch {
+                try {
+                    session.send(Frame.Text(json.encodeToString(WsMessage("sync_update", message))))
+                } catch (e: Exception) {
+                    // Session closed
                 }
             }
-
-            // This blocks until unsubscribe
-            RedisService.subscribe(pubSub, *channels)
         }
     }
 }

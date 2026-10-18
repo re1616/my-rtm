@@ -19,6 +19,9 @@ import com.taskly.server.tags.tagRoutes
 import com.taskly.server.sync.syncRoutes
 import com.taskly.server.features.featuresRoutes
 import com.taskly.server.websocket.WebSocketService
+import com.taskly.server.errors.*
+import com.taskly.server.ratelimit.RateLimitPlugin
+import io.ktor.server.plugins.BadRequestException
 
 private val logger = LoggerFactory.getLogger("Setup")
 
@@ -37,10 +40,21 @@ fun Application.configureStatusPages() {
     install(StatusPages) {
         exception<Throwable> { call, cause ->
             val status = when (cause) {
+                is UnauthorizedException -> HttpStatusCode.Unauthorized
+                is ForbiddenException -> HttpStatusCode.Forbidden
+                is NotFoundException -> HttpStatusCode.NotFound
+                is ConflictException -> HttpStatusCode.Conflict
+                is TooManyRequestsException -> HttpStatusCode.TooManyRequests
+                is BadRequestException -> HttpStatusCode.BadRequest
                 is IllegalArgumentException -> HttpStatusCode.BadRequest
                 else -> HttpStatusCode.InternalServerError
             }
-            val message = cause.message ?: "Internal server error"
+            if (cause is TooManyRequestsException) {
+                call.response.headers.append(HttpHeaders.RetryAfter, cause.retryAfterSeconds.toString())
+            }
+            // Never leak internal exception messages for 5xx
+            val message = if (status == HttpStatusCode.InternalServerError) "Internal server error"
+                else cause.message ?: status.description
             call.respond(status, mapOf("error" to message))
             if (status == HttpStatusCode.InternalServerError) {
                 logger.error("Unhandled exception", cause)
@@ -50,6 +64,7 @@ fun Application.configureStatusPages() {
 }
 
 fun Application.configureRouting() {
+    install(RateLimitPlugin)
     install(WebSockets)
     routing {
         get("/health") {

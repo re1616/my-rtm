@@ -1,6 +1,10 @@
 import { defineConfig } from 'vitest/config';
+import { sharedKmpAliases } from './vite.config';
 
 export default defineConfig({
+  resolve: {
+    alias: sharedKmpAliases,
+  },
   test: {
     globals: true,
     environment: 'jsdom',

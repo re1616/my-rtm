@@ -25,6 +25,10 @@ class IntegrationTest {
 
     @BeforeAll
     fun setup() {
+        // Tests TRUNCATE every table — never run them against a non-test database.
+        check(Config.database.database.endsWith("_test")) {
+            "Integration tests must use a *_test database (PGDATABASE), got '${Config.database.database}'"
+        }
         Database.init(Config.database)
         RedisService.init(Config.redis)
         RateLimiter.init(Config.rateLimit)

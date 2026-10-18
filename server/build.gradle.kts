@@ -62,6 +62,9 @@ tasks.withType<Test> {
     environment("PGPASSWORD", System.getenv("PGPASSWORD") ?: "taskly")
     environment("REDIS_HOST", System.getenv("REDIS_HOST") ?: "localhost")
     environment("REDIS_PORT", System.getenv("REDIS_PORT") ?: "6379")
+    // Tests register many users from one IP; the auth limiter itself is covered by a test
+    environment("RATE_LIMIT_AUTH_BURST", System.getenv("RATE_LIMIT_AUTH_BURST") ?: "10000")
+    environment("RATE_LIMIT_AUTH_PER_SECOND", System.getenv("RATE_LIMIT_AUTH_PER_SECOND") ?: "1000")
 }
 
 // Flyway config at configure time (reads env vars, falls back to defaults)
@@ -91,4 +94,7 @@ val integrationTest by tasks.registering(Test::class) {
     environment("PGPASSWORD", System.getenv("PGPASSWORD") ?: "taskly")
     environment("REDIS_HOST", System.getenv("REDIS_HOST") ?: "localhost")
     environment("REDIS_PORT", System.getenv("REDIS_PORT") ?: "6379")
+    // Tests register many users from one IP; the auth limiter itself is covered by a test
+    environment("RATE_LIMIT_AUTH_BURST", System.getenv("RATE_LIMIT_AUTH_BURST") ?: "10000")
+    environment("RATE_LIMIT_AUTH_PER_SECOND", System.getenv("RATE_LIMIT_AUTH_PER_SECOND") ?: "1000")
 }

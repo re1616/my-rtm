@@ -1,6 +1,5 @@
 package com.taskly.server
 
-import com.taskly.server.config.ConfigValidator
 import com.typesafe.config.ConfigFactory
 
 // Configuration data classes — maps from application.conf `taskly` block
@@ -31,63 +30,61 @@ data class SyncConfig(
 data class RateLimitConfig(
     val tokensPerSecond: Int,
     val burstSize: Int,
-    val perAccountMaxAttempts: Int = 5
+    /** Per-IP bucket for the /v1/auth endpoints (password guessing). */
+    val authTokensPerSecond: Double = 0.2,
+    val authBurstSize: Int = 10,
 )
 
+// Loader
 object Config {
-    /** Environment: "dev" or "prod". Defaults to "dev" if not set. */
-    val TASKLY_ENV: String = System.getenv("TASKLY_ENV") ?: "dev"
-
     private val config = ConfigFactory.load().getConfig("taskly")
 
-    // CFG-1: env overrides — env vars take precedence over config file defaults
-    private fun envOrConfig(key: String, envVar: String? = null): String {
-        val envValue = if (envVar != null) System.getenv(envVar) else null
-        return envValue ?: config.getString(key)
-    }
+    /** Built-in development secret from application.conf — never acceptable outside dev. */
+    const val DEV_JWT_SECRET = "taskly-dev-secret-change-in-production-min-256bits!!"
 
-    private fun envOrConfigInt(key: String, envVar: String? = null): Int {
-        val envValue = if (envVar != null) System.getenv(envVar) else null
-        return envValue?.toIntOrNull() ?: config.getInt(key)
-    }
-
-    private fun envOrConfigLong(key: String, envVar: String? = null): Long {
-        val envValue = if (envVar != null) System.getenv(envVar) else null
-        return envValue?.toLongOrNull() ?: config.getLong(key)
-    }
+    /** "dev" by default; set TASKLY_ENV=production (or anything else) in real deployments. */
+    val env: String = config.getString("env")
+    val isDev: Boolean get() = env.equals("dev", ignoreCase = true)
 
     val database = DatabaseConfig(
-        host = envOrConfig("database.host", "PGHOST"),
-        port = envOrConfigInt("database.port", "PGPORT"),
-        database = envOrConfig("database.database", "PGDATABASE"),
-        user = envOrConfig("database.user", "PGUSER"),
-        password = envOrConfig("database.password", "PGPASSWORD"),
-        poolSize = envOrConfigInt("database.poolSize")
+        host = config.getString("database.host"),
+        port = config.getInt("database.port"),
+        database = config.getString("database.database"),
+        user = config.getString("database.user"),
+        password = config.getString("database.password"),
+        poolSize = config.getInt("database.poolSize")
     )
 
     val redis = RedisConfig(
-        host = envOrConfig("redis.host", "REDIS_HOST"),
-        port = envOrConfigInt("redis.port", "REDIS_PORT")
+        host = config.getString("redis.host"),
+        port = config.getInt("redis.port")
     )
 
     val auth = AuthConfig(
-        jwtSecret = envOrConfig("auth.jwtSecret", "JWT_SECRET"),
-        accessTokenExpiryMinutes = envOrConfigLong("auth.accessTokenExpiryMinutes"),
-        refreshTokenExpiryDays = envOrConfigInt("auth.refreshTokenExpiryDays")
-    )
+        jwtSecret = config.getString("auth.jwtSecret"),
+        accessTokenExpiryMinutes = config.getLong("auth.accessTokenExpiryMinutes"),
+        refreshTokenExpiryDays = config.getInt("auth.refreshTokenExpiryDays")
+    ).also { validateAuth(it, isDev) }
 
     val sync = SyncConfig(
-        maxBatchSize = envOrConfigInt("sync.maxBatchSize")
+        maxBatchSize = config.getInt("sync.maxBatchSize")
     )
 
     val rateLimit = RateLimitConfig(
-        tokensPerSecond = envOrConfigInt("rateLimit.tokensPerSecond"),
-        burstSize = envOrConfigInt("rateLimit.burstSize"),
-        perAccountMaxAttempts = 5
+        tokensPerSecond = config.getInt("rateLimit.tokensPerSecond"),
+        burstSize = config.getInt("rateLimit.burstSize"),
+        authTokensPerSecond = config.getDouble("rateLimit.authTokensPerSecond"),
+        authBurstSize = config.getInt("rateLimit.authBurstSize"),
     )
-
-    /** Call after construction to validate all config. */
-    fun validate() {
-        ConfigValidator.validate(this)
+}
+/**
+ * Fails fast when the JWT secret is unsafe for the current environment:
+ * outside dev the built-in secret is rejected and a secret must be at least 32 chars.
+ */
+fun validateAuth(auth: AuthConfig, isDev: Boolean) {
+    if (isDev) return
+    require(auth.jwtSecret != Config.DEV_JWT_SECRET) {
+        "JWT_SECRET must be set outside dev (TASKLY_ENV != dev); refusing to start with the built-in dev secret"
     }
+    require(auth.jwtSecret.length >= 32) { "JWT_SECRET must be at least 32 characters" }
 }

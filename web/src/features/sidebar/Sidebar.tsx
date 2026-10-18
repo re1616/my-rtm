@@ -2,6 +2,7 @@
 import React from 'react';
 import type { AppView } from '../../types';
 import store from '../../store/taskStore';
+import AuthPanel from '../sync/AuthPanel';
 
 const systemViews: {
   id: string;
@@ -150,6 +151,7 @@ const Sidebar: React.FC<{ currentView: AppView }> = ({ currentView }) => {
       )}
 
       <div className="sidebar-footer">
+        <AuthPanel />
         <div className="sidebar-sync-status">
           {storeState.isOnline ? 'В сети' : 'Офлайн'}
         </div>

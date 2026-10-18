@@ -1,0 +1,126 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+jobs:
+  kotlin:
+    name: Shared + Server (Gradle)
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: taskly
+          POSTGRES_PASSWORD: taskly
+          POSTGRES_DB: taskly_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U taskly"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGDATABASE: taskly_test
+      PGUSER: taskly
+      PGPASSWORD: taskly
+      REDIS_HOST: localhost
+      REDIS_PORT: "6379"
+      JWT_SECRET: ci-only-secret-0123456789abcdef0123456789abcdef
+      # Tests register dozens of users from one IP; the auth limit itself is tested separately
+      RATE_LIMIT_AUTH_BURST: "10000"
+      RATE_LIMIT_AUTH_PER_SECOND: "1000"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Install DB extensions (normally done by a superuser, see V1 migration)
+        run: psql -h localhost -U taskly -d taskly_test -c "CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+        env:
+          PGPASSWORD: taskly
+      - name: Shared tests (JVM + JS)
+        shell: bash
+        run: ./gradlew :shared:allTests --console=plain 2>&1 | tee gradle-shared.log; exit ${PIPESTATUS[0]}
+      - name: Server tests (unit + integration on PG/Redis)
+        shell: bash
+        run: ./gradlew :server:test :server:integrationTest --console=plain --continue 2>&1 | tee gradle-server.log; exit ${PIPESTATUS[0]}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Start server for the web E2E test (AC-7)
+        shell: bash
+        run: |
+          nohup ./gradlew :server:run --console=plain > server-run.log 2>&1 &
+          for i in $(seq 1 120); do
+            curl -sf http://localhost:8080/health && exit 0
+            sleep 2
+          done
+          echo "server did not start"; tail -50 server-run.log; exit 1
+      - name: Web E2E — offline queue against the real server
+        working-directory: web
+        shell: bash
+        env:
+          TASKLY_E2E_URL: http://localhost:8080
+        run: |
+          npm ci
+          npx vitest run src/__tests__/offlineSync.e2e.test.ts --reporter=default --reporter=github-actions 2>&1 | tee ../vitest-e2e.log; exit ${PIPESTATUS[0]}
+      - name: Report failures as annotations
+        if: failure()
+        run: python3 .github/scripts/report_failures.py gradle-shared.log gradle-server.log server-run.log vitest-e2e.log
+      - name: Upload test reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kotlin-test-reports
+          path: |
+            shared/build/reports/tests
+            server/build/reports/tests
+            shared/build/test-results
+            server/build/test-results
+
+  web:
+    name: Web SPA (Vitest + build)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+      - name: Build shared KMP module for the web (Kotlin/JS → ES module)
+        shell: bash
+        run: ./gradlew :shared:webLibrary --console=plain 2>&1 | tee gradle-web.log; exit ${PIPESTATUS[0]}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install
+        working-directory: web
+        run: npm ci
+      - name: Test
+        working-directory: web
+        shell: bash
+        run: npx vitest run --reporter=default --reporter=github-actions 2>&1 | tee ../vitest.log; exit ${PIPESTATUS[0]}
+      - name: Build
+        working-directory: web
+        run: npm run build
+      - name: Report failures as annotations
+        if: failure()
+        run: |
+          ls -la shared/build/dist/js/productionLibrary 2>/dev/null || echo "no shared JS build"
+          python3 .github/scripts/report_failures.py gradle-web.log vitest.log

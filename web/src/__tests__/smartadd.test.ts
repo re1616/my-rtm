@@ -1,128 +1,115 @@
-// Taskly Web — Smart Add Parser Tests
+// Smart Add in the web = the shared Kotlin/JS parser (no TS re-implementation).
+// Expectations are taken from the shared corpus (SmartAddCorpusTest: today 2026-10-17,
+// Europe/Moscow = UTC+03), so the web, server and Android behave identically.
 import { describe, it, expect } from 'vitest';
-import { parseSmartAdd } from '../features/smartadd/parser';
+import { parseSmartAdd, offsetString } from '../features/smartadd/parser';
 
-describe('Smart Add Parser', () => {
-  it('parses simple task name without tokens', () => {
-    const result = parseSmartAdd('Buy milk');
-    expect(result.name).toBe('Buy milk');
-    expect(result.tokens).toHaveLength(0);
+const ctx = { today: '2026-10-17', timeZone: 'UTC+03' };
+const parse = (input: string, extra: Partial<typeof ctx> & { listNames?: string[]; tagNames?: string[] } = {}) =>
+  parseSmartAdd(input, { ...ctx, ...extra });
+
+/** Local (UTC+03) calendar date of an ISO instant. */
+const mskDate = (iso?: string) => (iso ? new Date(Date.parse(iso) + 3 * 3600_000).toISOString().slice(0, 10) : undefined);
+
+describe('Smart Add (shared KMP parser)', () => {
+  it('plain text has no tokens', () => {
+    const r = parse('Buy milk');
+    expect(r.name).toBe('Buy milk');
+    expect(r.tokens).toHaveLength(0);
   });
 
-  it('parses due date token (^)', () => {
-    const result = parseSmartAdd('Buy milk ^tomorrow');
-    expect(result.name).toBe('Buy milk');
-    expect(result.dueDate).toBeDefined();
-    expect(result.tokens).toHaveLength(1);
-    expect(result.tokens[0].type).toBe('dueDate');
+  it.each([
+    ['Купить молоко ^завтра', '2026-10-18'],
+    ['Купить молоко ^через 3 дня', '2026-10-20'],
+    ['Купить молоко ^пт', '2026-10-23'],
+    ['Купить молоко ^25 дек', '2026-12-25'],
+    ['Купить молоко ^через месяц', '2026-11-17'],
+    ['Buy milk ^tomorrow', '2026-10-18'],
+  ])('due date: %s → %s', (input, date) => {
+    const r = parse(input);
+    expect(r.name).toBe(input.split(' ^')[0]);
+    expect(mskDate(r.dueDate)).toBe(date);
+    expect(r.dueHasTime).toBe(false);
+    expect(r.tokens.map((t) => t.type)).toEqual(['dueDate']);
   });
 
-  it('parses due date token (^) with Russian', () => {
-    const result = parseSmartAdd('Купить молоко ^завтра');
-    expect(result.name).toBe('Купить молоко');
-    expect(result.dueDate).toBeDefined();
-    expect(result.tokens).toHaveLength(1);
-    expect(result.tokens[0].type).toBe('dueDate');
+  it('date-only due is local midnight as an instant', () => {
+    expect(parse('Купить молоко ^завтра').dueDate).toBe('2026-10-17T21:00:00Z');
   });
 
-  it('parses priority token (!)', () => {
-    const result = parseSmartAdd('Important task !1');
-    expect(result.name).toBe('Important task');
-    expect(result.priority).toBe(1);
-    expect(result.tokens).toHaveLength(1);
-    expect(result.tokens[0].type).toBe('priority');
+  it('due with time keeps the time', () => {
+    const r = parse('Купить молоко ^завтра 17:00');
+    expect(r.dueDate).toBe('2026-10-18T14:00:00Z');
+    expect(r.dueHasTime).toBe(true);
   });
 
-  it('parses priority 2 and 3', () => {
-    const r2 = parseSmartAdd('Medium !2');
-    expect(r2.priority).toBe(2);
-
-    const r3 = parseSmartAdd('Low !3');
-    expect(r3.priority).toBe(3);
+  it('start date (~)', () => {
+    expect(mskDate(parse('Спортзал ~через 2 дня').startDate)).toBe('2026-10-19');
   });
 
-  it('parses list token (#)', () => {
-    const result = parseSmartAdd('Task #Work');
-    expect(result.name).toBe('Task');
-    expect(result.listName).toBe('Work');
-    expect(result.tokens).toHaveLength(1);
+  it.each([
+    ['Задача !1', 1],
+    ['Задача !2', 2],
+    ['Задача !3', 3],
+  ])('priority: %s', (input, p) => {
+    const r = parse(input);
+    expect(r.name).toBe('Задача');
+    expect(r.priority).toBe(p);
   });
 
-  it('parses repeat token (*)', () => {
-    const result = parseSmartAdd('Weekly task *every week');
-    expect(result.name).toBe('Weekly task');
-    expect(result.repeatRule).toBeDefined();
-    expect(result.repeatMode).toBe('every');
+  it('first # is a list, the rest are tags', () => {
+    const r = parse('Отчёт #Работа #срочно');
+    expect(r.name).toBe('Отчёт');
+    expect(r.listName).toBe('Работа');
+    expect(r.tags).toEqual(['срочно']);
   });
 
-  it('parses estimate token (=)', () => {
-    const result = parseSmartAdd('Code review =30 mins');
-    expect(result.name).toBe('Code review');
-    expect(result.estimateMin).toBe(30);
+  it('a known list wins over a tag with the same name', () => {
+    const lists = ['Работа', 'Покупки'];
+    const tags = ['работа', 'звонки'];
+    expect(parse('Задача #работа', { listNames: lists, tagNames: tags })).toMatchObject({ listName: 'работа', tags: [] });
+    expect(parse('Задача #звонки', { listNames: lists, tagNames: tags })).toMatchObject({ tags: ['звонки'] });
   });
 
-  it('parses note token (//)', () => {
-    const result = parseSmartAdd('Task // remember to check');
-    expect(result.name).toBe('Task');
-    expect(result.note).toBe('remember to check');
+  it('repeat every / after', () => {
+    const every = parse('Совещание *каждую неделю');
+    expect(every).toMatchObject({ name: 'Совещание', repeatMode: 'every' });
+    expect(every.repeatRule).toMatch(/FREQ=WEEKLY/);
+
+    const after = parse('Уборка *после 2 недель');
+    expect(after).toMatchObject({ name: 'Уборка', repeatMode: 'after' });
+    expect(after.repeatRule).toMatch(/FREQ=WEEKLY/);
+    expect(after.repeatRule).toMatch(/INTERVAL=2/);
+
+    expect(parse('Йога *каждый понедельник').repeatRule).toMatch(/BYDAY=MO/);
   });
 
-  it('parses start date token (~)', () => {
-    const result = parseSmartAdd('Plan ~monday');
-    expect(result.name).toBe('Plan');
-    expect(result.startDate).toBeDefined();
+  it('estimate, location, note', () => {
+    expect(parse('Задача =1.5ч')).toMatchObject({ name: 'Задача', estimateMin: 90 });
+    expect(parse('Встреча @офис')).toMatchObject({ name: 'Встреча', location: 'офис' });
+    expect(parse('Позвонить маме // сказать про отпуск')).toMatchObject({
+      name: 'Позвонить маме',
+      note: 'сказать про отпуск',
+    });
   });
 
-  it('parses location token (@)', () => {
-    const result = parseSmartAdd('Meet @office');
-    expect(result.location).toBe('office');
+  it('token positions point into the original string', () => {
+    const input = 'Купить ^завтра молоко #дом';
+    const r = parse(input);
+    const due = r.tokens.find((t) => t.type === 'dueDate')!;
+    expect(input.slice(due.start, due.end)).toBe('^завтра');
+    expect(due.raw).toBe('^завтра');
+    const list = r.tokens.find((t) => t.type === 'list')!;
+    expect(list.raw).toBe('#дом');
   });
 
-  it('parses multiple tokens combined', () => {
-    const result = parseSmartAdd('Submit report ^пт #Работа !1');
-    expect(result.name).toBe('Submit report');
-    expect(result.dueDate).toBeDefined();
-    expect(result.listName).toBe('Работа');
-    expect(result.priority).toBe(1);
-    expect(result.tokens).toHaveLength(3);
+  it('empty input', () => {
+    const r = parse('');
+    expect(r.name).toBe('');
+    expect(r.tokens).toHaveLength(0);
   });
 
-  it('handles "через N дней" date syntax', () => {
-    const result = parseSmartAdd('Task ^через 3 дня');
-    expect(result.name).toBe('Task');
-    expect(result.dueDate).toBeDefined();
-  });
-
-  it('handles "in N days" date syntax', () => {
-    const result = parseSmartAdd('Task ^in 5 days');
-    expect(result.name).toBe('Task');
-    expect(result.dueDate).toBeDefined();
-  });
-
-  it('parses after repeat mode (*after)', () => {
-    const result = parseSmartAdd('Task *after 2 weeks');
-    expect(result.name).toBe('Task');
-    expect(result.repeatRule).toBeDefined();
-    expect(result.repeatMode).toBe('after');
-  });
-
-  it('handles empty input', () => {
-    const result = parseSmartAdd('');
-    expect(result.name).toBe('');
-    expect(result.tokens).toHaveLength(0);
-  });
-
-  it('handles input with only tokens', () => {
-    const result = parseSmartAdd('^завтра !1 #Work');
-    expect(result.name).toBe('');
-    expect(result.dueDate).toBeDefined();
-    expect(result.priority).toBe(1);
-    expect(result.listName).toBe('Work');
-  });
-
-  it('preserves token positions', () => {
-    const result = parseSmartAdd('Buy milk ^tomorrow !2');
-    expect(result.tokens[0].start).toBe(9); // ^tomorrow starts at index 9
-    expect(result.tokens[0].end).toBe(18);  // ends at index 18
+  it('formats the browser offset for the fallback zone', () => {
+    expect(offsetString(new Date())).toMatch(/^UTC[+-]\d{2}:\d{2}$/);
   });
 });
