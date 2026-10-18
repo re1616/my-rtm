@@ -31,6 +31,8 @@ android {
 dependencies {
     implementation(project(":shared"))
     implementation(project(":android:core:database"))
+    implementation(project(":android:core:network"))
+    implementation(project(":android:core:sync"))
     implementation(project(":android:core:designsystem"))
     implementation(platform(libs.compose.bom))
     implementation(libs.compose.ui)
@@ -42,6 +44,9 @@ dependencies {
     implementation(libs.lifecycle.viewmodel)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.datetime)
+    implementation(libs.kotlinx.serialization.json)
+    implementation(libs.room.runtime)
+    implementation(libs.room.ktx)
 
     testImplementation(libs.kotlin.test)
 }

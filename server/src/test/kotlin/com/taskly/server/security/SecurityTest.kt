@@ -209,9 +209,9 @@ class SecurityTest {
         }
         assertEquals(HttpStatusCode.OK, completeResp.status)
 
-        // Unauthenticated outsider is rejected (400 via error handler)
+        // Unauthenticated outsider is rejected (401 via auth middleware)
         val unauthResp = client.get("/v1/tasks/${taskBody.id}")
-        assertEquals(HttpStatusCode.BadRequest, unauthResp.status,
+        assertEquals(HttpStatusCode.Unauthorized, unauthResp.status,
             "SEC-4: Unauthenticated access should be rejected")
     }
 
@@ -265,17 +265,17 @@ class SecurityTest {
         val resp = client.get("/v1/tasks") {
             bearerAuth("invalid.token.here")
         }
-        // IllegalArgumentException maps to 400 Bad Request via error handler
-        assertEquals(HttpStatusCode.BadRequest, resp.status,
-            "SEC-5: Invalid access token should be rejected (400 via error handler)")
+        // Auth middleware returns 401 for invalid tokens
+        assertEquals(HttpStatusCode.Unauthorized, resp.status,
+            "SEC-5: Invalid access token should be rejected")
     }
 
     @Test
     fun `SEC-5 missing auth header rejected`() = testApplication {
         application { moduleForTest() }
         val resp = client.get("/v1/tasks")
-        assertEquals(HttpStatusCode.BadRequest, resp.status,
-            "SEC-5: Missing auth header should be rejected (400 via error handler)")
+        assertEquals(HttpStatusCode.Unauthorized, resp.status,
+            "SEC-5: Missing auth header should be rejected")
     }
 
     // DTOs

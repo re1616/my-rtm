@@ -46,6 +46,7 @@ fun Application.configureStatusPages() {
                 is ConflictException -> HttpStatusCode.Conflict
                 is TooManyRequestsException -> HttpStatusCode.TooManyRequests
                 is BadRequestException -> HttpStatusCode.BadRequest
+                is RateLimitExceededException -> HttpStatusCode.TooManyRequests
                 is IllegalArgumentException -> HttpStatusCode.BadRequest
                 else -> HttpStatusCode.InternalServerError
             }

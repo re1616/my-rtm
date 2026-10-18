@@ -22,6 +22,7 @@ data class TaskEntity(
     @ColumnInfo(name = "postponed_count") val postponedCount: Int = 0,
     val url: String? = null,
     val version: Long = 1,
+    val sortOrder: Int = 0,
     @ColumnInfo(name = "deleted_at") val deletedAt: String? = null,
     @ColumnInfo(name = "created_at") val createdAt: String,
     @ColumnInfo(name = "updated_at") val updatedAt: String
@@ -55,7 +56,7 @@ data class TagEntity(
 
 @Entity(
     tableName = "task_tags",
-    primaryKeys = ["taskId", "tagId"]
+    primaryKeys = ["task_id", "tag_id"]
 )
 data class TaskTagEntity(
     @ColumnInfo(name = "task_id") val taskId: String,
@@ -64,7 +65,7 @@ data class TaskTagEntity(
 
 @Entity(
     tableName = "field_versions",
-    primaryKeys = ["entityId", "fieldName"]
+    primaryKeys = ["entity_id", "field_name"]
 )
 data class FieldVersionEntity(
     @ColumnInfo(name = "entity_id") val entityId: String,

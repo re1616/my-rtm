@@ -22,7 +22,8 @@ include(":server")
 // GitHub Actions runners have ANDROID_HOME pre-set but lack the required
 // AGP/KSP plugin versions — they build Android via a dedicated job.
 val isCi = System.getenv("CI") == "true"
-if (!isCi) {
+val androidSdk = System.getenv("ANDROID_HOME")
+if (!isCi || androidSdk != null) {
     include(":android:app")
     include(":android:core:database")
     include(":android:core:network")

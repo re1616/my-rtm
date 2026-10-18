@@ -197,8 +197,8 @@ class FeaturesIntegrationTest {
     fun `features endpoint requires auth`() = testApplication {
         application { moduleForTest() }
         val resp = client.get("/v1/features")
-        // Auth throws IllegalArgumentException which error handler maps to 400
-        assertEquals(HttpStatusCode.BadRequest, resp.status)
+        // Auth middleware returns 401 for unauthenticated requests
+        assertEquals(HttpStatusCode.Unauthorized, resp.status)
     }
 
     @Test

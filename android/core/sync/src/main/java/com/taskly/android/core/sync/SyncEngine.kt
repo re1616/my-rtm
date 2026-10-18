@@ -241,7 +241,7 @@ object SyncEngine {
             listId = data["listId"]?.jsonPrimitive?.content ?: "",
             parentId = data["parentId"]?.jsonPrimitive?.contentOrNull,
             name = data["name"]?.jsonPrimitive?.content ?: "",
-            priority = data["priority"]?.jsonPrimitive?.contentOrNull,
+            priority = data["priority"]?.jsonPrimitive?.intOrNull,
             dueAt = data["dueAt"]?.jsonPrimitive?.contentOrNull,
             dueHasTime = data["dueHasTime"]?.jsonPrimitive?.boolean ?: false,
             startAt = data["startAt"]?.jsonPrimitive?.contentOrNull,

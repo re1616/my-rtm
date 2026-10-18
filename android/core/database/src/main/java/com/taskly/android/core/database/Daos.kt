@@ -79,8 +79,8 @@ interface SyncQueueDao {
     @Query("DELETE FROM sync_queue WHERE opId = :opId")
     suspend fun remove(opId: String)
 
-    @Query("UPDATE sync_queue SET status = 'failed', last_error = :error WHERE opId = :opId")
-    suspend fun markFailed(opId: String, error: String?)
+    @Query("UPDATE sync_queue SET status = :status, last_error = :error WHERE opId = :opId")
+    suspend fun markFailed(opId: String, status: String = "failed", error: String? = null)
 
     @Query("DELETE FROM sync_queue WHERE status = 'completed'")
     suspend fun clearCompleted()

@@ -82,7 +82,7 @@ class RecurrenceCountIntegrationTest {
             val completeResp = client.post("/v1/tasks/${currentTask.id}/complete") {
                 bearerAuth(token)
             }
-            assertEquals(HttpStatusCode.OK, completeResp.status, "Complete #$i should succeed")
+            assertEquals(HttpStatusCode.Created, completeResp.status, "Complete #$i should succeed")
             val body = completeResp.bodyAsText()
             assertTrue(body.contains("nextInstance"), "Complete #$i should create next instance: $body")
             val nextId = body.substringAfter("nextInstance\":\"").substringBefore("\"")

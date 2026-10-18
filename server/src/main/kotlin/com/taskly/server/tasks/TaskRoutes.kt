@@ -3,6 +3,7 @@ package com.taskly.server.tasks
 import com.taskly.server.db.Database
 import com.taskly.server.db.ListsTable
 import com.taskly.server.dto.*
+import com.taskly.server.errors.ForbiddenException
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
@@ -37,7 +38,7 @@ fun Route.taskRoutes() {
                 .and(ListsTable.OWNER_ID.eq(ownerId))
                 .fetchOneInto(Long::class.java) ?: 0L
             if (count == 0L) {
-                throw IllegalArgumentException("List not found or access denied")
+                throw ForbiddenException("List not found or access denied")
             }
         }
 
