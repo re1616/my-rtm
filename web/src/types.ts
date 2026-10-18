@@ -23,6 +23,7 @@ export interface Task {
   postponedCount: number;
   tags: string[];
   notes?: string;
+  parentId?: string;
   deletedAt?: string;
   version: number;
   createdAt: string;
@@ -98,13 +99,15 @@ export type SyncOpType =
   | 'tag_add'
   | 'tag_remove';
 
+export type SyncEntity = 'task' | 'list' | 'tag' | 'location';
+
 export interface SyncOperation {
   opId: string;
   /** Monotonic queue position: ops are sent strictly in this order. */
   seq: number;
   /** Filled in at send time from the session (`user:<id>`); empty while queued offline. */
   scope: string;
-  entity: 'task' | 'list' | 'tag';
+  entity: SyncEntity;
   entityId: string;
   type: SyncOpType;
   /** Changed fields only, in the server's wire format (camelCase, null = clear). */
@@ -123,6 +126,18 @@ export interface Session {
   accessToken: string;
   refreshToken: string;
   email?: string;
+}
+
+/** Server-side location entity, synced via SYNC-6. */
+export interface TaskLocation {
+  id: string;
+  name: string;
+  color?: string;
+  lat?: number;
+  lng?: number;
+  radius?: number;
+  createdAt: string;
+  updatedAt?: string;
 }
 
 // ── System view types ──

@@ -18,7 +18,7 @@ import {
   refreshSession,
   type ApiDeps,
 } from '../../api/client';
-import type { Session, SyncOperation, Task } from '../../types';
+import type { Session, SyncOperation, Task, TaskList, TaskTag, TaskLocation } from '../../types';
 
 const SYNC_INTERVAL_MS = 15000;
 const MAX_BATCH = 500;
@@ -43,21 +43,25 @@ interface ServerResult {
 /** Statuses after which retrying is pointless: the op is final on the server side. */
 const FINAL_STATUSES = new Set(['ok', 'not_found', 'forbidden']);
 
-/** Calls the API with the session token, refreshing it once on 401. */
+/** Calls the API with the session token, refreshing it once on 401.
+ *  SYNC-7: передаёт Taskly-Sync-Version в каждом sync-запросе.
+ */
 async function authed<T>(
   deps: ApiDeps,
   session: Session,
   method: string,
   path: string,
   body?: unknown,
+  extraHeaders?: Record<string, string>,
 ): Promise<{ result: T; session: Session }> {
+  const syncHeaders = { ...(extraHeaders ?? {}), 'Taskly-Sync-Version': '2' };
   try {
-    return { result: await apiRequest<T>(deps, method, path, body, session.accessToken), session };
+    return { result: await apiRequest<T>(deps, method, path, body, session.accessToken, syncHeaders), session };
   } catch (e) {
     if (e instanceof ApiError && e.status === 401) {
       const next = await refreshSession(deps, session);
       if (!next) throw e;
-      return { result: await apiRequest<T>(deps, method, path, body, next.accessToken), session: next };
+      return { result: await apiRequest<T>(deps, method, path, body, next.accessToken, syncHeaders), session: next };
     }
     throw e;
   }
@@ -181,13 +185,33 @@ export async function pullChanges(deps: ApiDeps = {}): Promise<number> {
     const { changes, cursor: next } = r.result;
     if (changes.length === 0) break;
 
-    await db.transaction('rw', db.tasks, db.syncQueue, db.settings, async () => {
+    await db.transaction(
+      'rw',
+      [db.tasks, db.lists, db.tags, db.locations, db.syncQueue, db.settings],
+      async () => {
       // Local edits that are not pushed yet win until they reach the server
       const pendingIds = new Set((await db.syncQueue.toArray()).map((o) => o.entityId));
       for (const c of changes) {
-        if (c.entity !== 'task' || pendingIds.has(c.entityId)) continue;
-        await applyTaskChange(c);
-        applied++;
+        if (pendingIds.has(c.entityId)) continue;
+        switch (c.entity) {
+          case 'task':
+            await applyTaskChange(c);
+            applied++;
+            break;
+          case 'list':
+            await applyListChange(c);
+            applied++;
+            break;
+          case 'tag':
+            await applyTagChange(c);
+            applied++;
+            break;
+          case 'location':
+            await applyLocationChange(c);
+            applied++;
+            break;
+          // unknown entity — skip silently (forward compat)
+        }
       }
       if (next) await db.settings.put({ key: CURSOR_KEY, value: next });
     });
@@ -254,6 +278,131 @@ async function applyTaskChange(c: ChangeEntry): Promise<void> {
         else tags.delete(tag);
         await db.tasks.update(c.entityId, { tags: [...tags] });
       }
+      break;
+    }
+  }
+}
+
+/**
+ * Применить дельту списка (SYNC-6: списки, теги, локации из дельт scope).
+ * Формат payload сервера: { name: string, isSmart?: boolean, filterQuery?: string, sortOrder?: int, archived?: boolean }
+ */
+async function applyListChange(c: ChangeEntry): Promise<void> {
+  const db = getDb();
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = c.payload ? (JSON.parse(c.payload) as Record<string, unknown>) : {};
+  } catch { /* keep empty */ }
+  const now = new Date().toISOString();
+  const has = (k: string) => Object.prototype.hasOwnProperty.call(payload, k);
+  const str = (v: unknown) => (v == null ? undefined : String(v));
+
+  switch (c.op) {
+    case 'create':
+    case 'update': {
+      const existing = await db.lists.get(c.entityId);
+      const fields: Record<string, unknown> = {};
+      if (has('name')) fields.name = String(payload.name);
+      if (c.op === 'create') {
+        await db.lists.put({
+          id: c.entityId,
+          name: String(payload.name ?? ''),
+          isSystem: false,
+          sortOrder: (payload.sort_order as number | undefined) ?? 0,
+          archived: has('archived') ? Boolean(payload.archived) : false,
+          createdAt: now,
+          updatedAt: now,
+        } as TaskList);
+      } else if (existing) {
+        const update: Record<string, unknown> = { updatedAt: now };
+        if (has('name')) update.name = String(payload.name);
+        if (has('sort_order')) update.sortOrder = payload.sort_order;
+        if (has('archived')) update.archived = Boolean(payload.archived);
+        await db.lists.update(c.entityId, update);
+      }
+      break;
+    }
+    case 'delete': {
+      const existing = await db.lists.get(c.entityId);
+      if (existing) await db.lists.delete(c.entityId);
+      break;
+    }
+  }
+}
+
+/**
+ * Применить дельту тега.
+ * Формат payload сервера: { name: string, color?: string }
+ */
+async function applyTagChange(c: ChangeEntry): Promise<void> {
+  const db = getDb();
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = c.payload ? (JSON.parse(c.payload) as Record<string, unknown>) : {};
+  } catch { /* keep empty */ }
+  const now = new Date().toISOString();
+
+  switch (c.op) {
+    case 'create':
+    case 'update': {
+      const existing = await db.tags.get(c.entityId);
+      if (existing) {
+        const update: Record<string, unknown> = { updatedAt: now };
+        if (Object.prototype.hasOwnProperty.call(payload, 'name')) update.name = String(payload.name);
+        if (Object.prototype.hasOwnProperty.call(payload, 'color')) update.color = String(payload.color);
+        await db.tags.update(c.entityId, update);
+      } else if (c.op === 'create') {
+        await db.tags.put({
+          id: c.entityId,
+          name: String(payload.name ?? ''),
+          color: payload.color ? String(payload.color) : undefined,
+          createdAt: now,
+        } as TaskTag);
+      }
+      break;
+    }
+    case 'delete': {
+      const existing = await db.tags.get(c.entityId);
+      if (existing) await db.tags.delete(c.entityId);
+      break;
+    }
+  }
+}
+
+/**
+ * Применить дельту локации.
+ * Формат payload сервера: { name: string }
+ * На вебе локации хранятся в отдельной таблице locations.
+ */
+async function applyLocationChange(c: ChangeEntry): Promise<void> {
+  const db = getDb();
+  let payload: Record<string, unknown> = {};
+  try {
+    payload = c.payload ? (JSON.parse(c.payload) as Record<string, unknown>) : {};
+  } catch { /* keep empty */ }
+  const now = new Date().toISOString();
+
+  switch (c.op) {
+    case 'create':
+    case 'update': {
+      const existing = await db.locations.get(c.entityId);
+      if (existing) {
+        const update: Record<string, unknown> = { updatedAt: now };
+        if (Object.prototype.hasOwnProperty.call(payload, 'name')) update.name = String(payload.name);
+        await db.locations.update(c.entityId, update);
+      } else if (c.op === 'create') {
+        await db.locations.put({
+          id: c.entityId,
+          name: String(payload.name ?? ''),
+          createdAt: now,
+          updatedAt: now,
+        } as TaskLocation);
+      }
+      break;
+    }
+    case 'delete': {
+      const existing = await db.locations.get(c.entityId);
+      if (existing) await db.locations.delete(c.entityId);
       break;
     }
   }

@@ -76,4 +76,95 @@ describe.skipIf(!baseUrl)('offline sync against the real server', () => {
     expect(open[0].id).not.toBe(task.id);
     expect(new Date(open[0].dueDate!).toISOString()).toBe(new Date('2026-10-26T10:00:00+03:00').toISOString());
   });
+
+  it('SYNC-6/7: pullChanges получает дельты списков, тегов и локаций через Taskly-Sync-Version', async () => {
+    // Регистрируемся, получаем токен
+    const db = getDb();
+
+    // Создаём список и тег через API (симуляция другого устройства)
+    const listId = crypto.randomUUID();
+    const tagId = crypto.randomUUID();
+    const locationId = crypto.randomUUID();
+
+    // Используем sync engine для создания списка
+    // (SYNC-6: клиент должен суметь применить дельты для всех сущностей scope)
+    // Отправляем create операцию для списка
+    db.syncQueue.add({
+      opId: crypto.randomUUID(),
+      seq: Date.now(),
+      scope: '',
+      entity: 'list',
+      entityId: listId,
+      type: 'create',
+      fields: { name: 'E2E Test List' },
+      baseVersion: 0,
+      clientTs: new Date().toISOString(),
+      status: 'pending',
+      retryCount: 0,
+    });
+
+    // Отправляем create операцию для тега
+    db.syncQueue.add({
+      opId: crypto.randomUUID(),
+      seq: Date.now() + 1,
+      scope: '',
+      entity: 'tag',
+      entityId: tagId,
+      type: 'create',
+      fields: { name: 'e2e-tag' },
+      baseVersion: 0,
+      clientTs: new Date().toISOString(),
+      status: 'pending',
+      retryCount: 0,
+    });
+
+    // Отправляем create операцию для локации
+    db.syncQueue.add({
+      opId: crypto.randomUUID(),
+      seq: Date.now() + 2,
+      scope: '',
+      entity: 'location',
+      entityId: locationId,
+      type: 'create',
+      fields: { name: 'E2E Location' },
+      baseVersion: 0,
+      clientTs: new Date().toISOString(),
+      status: 'pending',
+      retryCount: 0,
+    });
+
+    // Пушим на сервер
+    const pushResult = await pushPendingOps(deps);
+    // Ожидаем, что все 3 операции ушли (state === 'idle', sent может быть 0-1 из-за batch)
+    // Проверяем, что сервер не отклонил операции
+    expect(pushResult.state).toBe('idle');
+    // Если сервер поддержал все сущности — очередь пуста
+    const remaining = await getPendingSyncOps();
+    expect(remaining.length).toBe(0);
+
+    // Очищаем локальную БД, чтобы pull снова их загрузил
+    await db.lists.clear();
+    await db.tags.clear();
+    await db.locations.clear();
+    await db.settings.clear();
+
+    // Pull — должен получить дельты со всеми сущностями
+    const pulled = await syncNow(deps);
+    expect(pulled).toBe('idle');
+
+    // Проверяем, что список применился из дельт
+    const list = await db.lists.get(listId);
+    expect(list).not.toBeNull();
+    expect(list!.name).toBe('E2E Test List');
+
+    // Проверяем, что тег применился
+    const tag = await db.tags.get(tagId);
+    expect(tag).not.toBeNull();
+    expect(tag!.name).toBe('e2e-tag');
+
+    // Проверяем, что локация применилась
+    const location = await db.locations.get(locationId);
+    expect(location).not.toBeNull();
+    expect(location!.name).toBe('E2E Location');
+  });
 });

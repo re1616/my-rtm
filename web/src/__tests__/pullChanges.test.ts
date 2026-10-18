@@ -12,11 +12,36 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   const db = getDb();
-  await Promise.all([db.tasks.clear(), db.syncQueue.clear(), db.settings.clear()]);
+  await Promise.all([
+    db.tasks.clear(),
+    db.lists.clear(),
+    db.tags.clear(),
+    db.locations.clear(),
+    db.syncQueue.clear(),
+    db.settings.clear(),
+  ]);
   await setSession({ userId: 'u1', accessToken: 'token-1', refreshToken: 'r1' });
 });
 
 describe('WEB-S4: multi-scope deltas + paginated snapshot', () => {
+  it('pullChanges отправляет Taskly-Sync-Version: 2 (SYNC-7)', async () => {
+    let receivedHeaders: Record<string, string> = {};
+    const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+      const url = new URL(String(input), 'http://fake');
+      const headers = (init?.headers as Record<string, string>) ?? {};
+      receivedHeaders = headers;
+      const json = (status: number, body: unknown) =>
+        new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
+      if (url.pathname === '/v1/sync/changes') {
+        return json(200, { changes: [], cursor: null });
+      }
+      return json(404, { error: 'not found' });
+    };
+    await pullChanges({ fetchImpl: fetchImpl as unknown as typeof fetch });
+    // Проверяем, что заголовок Taskly-Sync-Version отправлен
+    expect(receivedHeaders['Taskly-Sync-Version']).toBe('2');
+  });
+
   it('pullChanges получает дельты задач и применяет их локально', async () => {
     let seq = 100;
 
@@ -209,17 +234,14 @@ describe('WEB-S4: multi-scope deltas + paginated snapshot', () => {
         return json(200, { accessToken: 'token-1', refreshToken: 'r2', userId: 'u1' });
       }
       if (url.pathname === '/v1/sync/changes') {
-        // Сервер пока не присылает списки/теги через этот эндпоинт
-        // (только task-изменения). Проверяем, что pullChanges обрабатывает
-        // и игнорирует не-task изменения без ошибок
         return json(200, {
           changes: [
             {
               seq: 10,
-              entity: 'list',  // список создан на другом устройстве
+              entity: 'list',
               entityId: 'list-shared-uuid',
               op: 'create',
-              payload: JSON.stringify({ name: 'Shared list', sharedWith: ['u1'] }),
+              payload: JSON.stringify({ name: 'Shared list' }),
             },
             {
               seq: 11,
@@ -228,20 +250,49 @@ describe('WEB-S4: multi-scope deltas + paginated snapshot', () => {
               op: 'create',
               payload: JSON.stringify({ name: 'In shared list', list_id: 'list-shared-uuid' }),
             },
+            {
+              seq: 12,
+              entity: 'tag',
+              entityId: 'tag-uuid-1',
+              op: 'create',
+              payload: JSON.stringify({ name: 'important' }),
+            },
+            {
+              seq: 13,
+              entity: 'location',
+              entityId: 'loc-uuid-1',
+              op: 'create',
+              payload: JSON.stringify({ name: 'Work' }),
+            },
           ],
-          cursor: '11',
+          cursor: '13',
         });
       }
       return json(404, { error: 'not found' });
     };
 
-    // Не должно упасть с ошибкой, не-task изменения игнорируются
+    // Должны применить все 4 изменения (list + task + tag + location)
     const count = await pullChanges({ fetchImpl: fetchImpl as unknown as typeof fetch });
-    // Должны применить только task-изменения
-    expect(count).toBe(1);
+    expect(count).toBe(4);
 
+    // Проверяем, что список применился
+    const list = await getDb().lists.get('list-shared-uuid');
+    expect(list).not.toBeNull();
+    expect(list!.name).toBe('Shared list');
+
+    // Проверяем, что задача применилась
     const task = await getTaskById('t-from-shared-list');
     expect(task).not.toBeNull();
     expect(task!.name).toBe('In shared list');
+
+    // Проверяем, что тег применился
+    const tag = await getDb().tags.get('tag-uuid-1');
+    expect(tag).not.toBeNull();
+    expect(tag!.name).toBe('important');
+
+    // Проверяем, что локация применилась
+    const loc = await getDb().locations.get('loc-uuid-1');
+    expect(loc).not.toBeNull();
+    expect(loc!.name).toBe('Work');
   });
 });
