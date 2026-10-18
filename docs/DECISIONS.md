@@ -91,3 +91,28 @@
 - **Оценка:** `estimateMin` передаётся напрямую
 - **Заметка:** `note` сохраняется как отдельная запись в `notes` (поле вне scope AC-8, может быть опущено)
 **Альтернативы:** Сериализация/десериализация через JSON (избыточно, медленнее). Прямой вызов из JVM — самый чистый путь, т.к. shared-модуль собран на JVM target.
+## Round 3 — Security fixes and wiring the shared module into server and web
+
+### ADR-3.1: Scopes and ownership are decided by the server
+**Context:** sync `create` did `ON CONFLICT (id) DO UPDATE SET owner_id = <caller>` — any user could take over any task by id; `scope` came from the client and was trusted for writes, `/v1/sync/changes` and WebSocket subscriptions.
+**Decision:** the server derives the only allowed scope (`user:<id>`) and rejects others (403 / `forbidden`). An existing id that belongs to someone else is never re-assigned. Tasks may reference only the caller's own lists. Shared-list scopes (`list:<id>`) will be added together with `list_members` permissions.
+
+### ADR-3.2: One savepoint per sync op, per-user idempotency
+**Context:** the whole batch ran in one transaction while catching per-op exceptions; after the first SQL error Postgres aborts the transaction, so the rest failed and "ok" ops were rolled back. `processed_ops.op_id` was a global key.
+**Decision:** each op runs in a nested transaction (savepoint); the key is `(user_id, op_id)` (V2 migration); WebSocket signals are published after commit.
+
+### ADR-3.3: Domain logic only from `shared`
+**Context:** the server had its own query parser and a naive `+1 day/week` recurrence; the web had a TS copy of the Smart Add parser — contrary to ARCH 3.1.
+**Decision:** server uses `QueryParser`/`SqlBuilder`/`SqlRenderer`, `RRule`/`Recurrence`, `MergeEngine`; web uses the Kotlin/JS library build (`:shared:webLibrary`, imported as `@taskly/shared` through a small `@JsExport` facade that returns JSON).
+
+### ADR-3.4: Completing a repeating task
+**Decision:** row lock (`FOR UPDATE`), idempotent (an already completed task never produces a second instance), next date from `Recurrence.nextInstanceDate` in the user's zone with the local time kept, tags and notes copied, all in one transaction with change_log entries. REST and sync use the same code path.
+
+### ADR-3.5: Web sync engine
+**Decision:** every repository mutation writes the entity and its op in one Dexie transaction; the queue is ordered by `seq`; an op leaves the queue only after the server acknowledged it; network errors keep ops pending, rejections are retried (max 5); pull by cursor skips entities with unsent local edits.
+
+### ADR-3.6: Rate limiting
+**Decision:** Ktor plugin over the existing Redis token bucket: per access token (or IP) for the API, a small per-IP bucket for `/v1/auth/*`; 429 + `Retry-After`; fail-open if Redis is unavailable.
+
+### ADR-3.7: CI as the source of truth for acceptance
+**Decision:** GitHub Actions runs shared (JVM+JS), server unit + integration tests on real PostgreSQL 16/Redis 7, web tests/build, and a web E2E test against a running server. STATUS.md refers to CI runs instead of hand-written claims.

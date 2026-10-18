@@ -30,7 +30,7 @@ data class SyncConfig(
 data class RateLimitConfig(
     val tokensPerSecond: Int,
     val burstSize: Int,
-    /** Per-IP bucket for /v1/auth/* (password guessing). */
+    /** Per-IP bucket for the /v1/auth endpoints (password guessing). */
     val authTokensPerSecond: Double = 0.2,
     val authBurstSize: Int = 10,
 )
