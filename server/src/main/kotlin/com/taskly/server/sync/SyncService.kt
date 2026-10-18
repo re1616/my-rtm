@@ -1,5 +1,7 @@
 package com.taskly.server.sync
 
+import com.taskly.server.db.Database
+import com.taskly.server.db.LocationsTable
 import com.taskly.server.db.*
 import com.taskly.server.dto.*
 import com.taskly.server.errors.ForbiddenException
@@ -163,12 +165,17 @@ object SyncService {
             "task" -> applyTaskOp(tx, ownerId, entityId, op)
             "list" -> applyListOp(tx, ownerId, entityId, op)
             "tag" -> applyTagOp(tx, ownerId, entityId, op)
+            "location" -> applyLocationOp(tx, ownerId, entityId, op)
             else -> throw IllegalArgumentException("Unknown entity: ${op.entity}")
         }
     }
 
     private fun applyTaskOp(tx: DSLContext, ownerId: UUID, id: UUID, op: SyncOperation): Applied {
         val fields = TaskFields.normalize(op.fields)
+
+        // SEC-2: validate references before applying the operation
+        validateRefs(tx, ownerId, fields)
+
         return when (op.type) {
             "create" -> {
                 val existing = tx.selectFrom(TasksTable.TABLE).where(TasksTable.ID.eq(id)).forUpdate().fetchOne()
@@ -399,9 +406,77 @@ object SyncService {
         }
     }
 
+    private fun applyLocationOp(tx: DSLContext, ownerId: UUID, id: UUID, op: SyncOperation): Applied {
+        val fields = op.fields.orEmpty()
+        return when (op.type) {
+            "create", "update" -> {
+                val existing = tx.selectFrom(LocationsTable.TABLE).where(LocationsTable.ID.eq(id)).forUpdate().fetchOne()
+                if (existing != null && existing.get(LocationsTable.OWNER_ID) != ownerId) {
+                    throw ForbiddenException("Entity id is already in use")
+                }
+                if (existing == null && op.type == "update") throw NotFoundException("Location not found")
+
+                val name = TaskFields.str(fields["name"])?.trim()?.takeIf { it.isNotEmpty() }
+                    ?: throw IllegalArgumentException("name must be a non-empty string")
+
+                if (existing == null) {
+                    tx.insertInto(LocationsTable.TABLE)
+                        .set(LocationsTable.ID, id)
+                        .set(LocationsTable.OWNER_ID, ownerId)
+                        .set(LocationsTable.NAME, name)
+                        .execute()
+                } else {
+                    tx.update(LocationsTable.TABLE)
+                        .set(LocationsTable.NAME, name)
+                        .where(LocationsTable.ID.eq(id))
+                        .execute()
+                }
+                val change = ChangeLog.append(tx, ownerId, "location", id, if (existing == null) "create" else "update",
+                    buildJsonObject { put("name", name) })
+                Applied(ok(op, id, null), listOf(change))
+            }
+            "delete" -> {
+                val n = tx.deleteFrom(LocationsTable.TABLE)
+                    .where(LocationsTable.ID.eq(id))
+                    .and(LocationsTable.OWNER_ID.eq(ownerId))
+                    .execute()
+                val change = if (n > 0) ChangeLog.append(tx, ownerId, "location", id, "delete") else null
+                Applied(ok(op, id, null), listOfNotNull(change))
+            }
+            else -> throw IllegalArgumentException("Unknown location operation type: ${op.type}")
+        }
+    }
+
     // ============================================================
     // Helpers
     // ============================================================
+
+    /**
+     * SEC-2: Validates that reference fields in a task operation (parent_id, location_id)
+     * point to entities owned by the same user. Throws ForbiddenException for foreign references.
+     */
+    private fun validateRefs(tx: DSLContext, ownerId: UUID, fields: Map<String, JsonElement>) {
+        // Malformed ids are rejected here too, so no reference check is ever skipped
+        fun ref(key: String): UUID? = (fields[key] as? JsonPrimitive)?.contentOrNull?.let {
+            try { UUID.fromString(it) } catch (e: IllegalArgumentException) { throw IllegalArgumentException("Invalid UUID in $key: $it") }
+        }
+        ref("parent_id")?.let { parentId ->
+            val owned = tx.fetchExists(
+                tx.selectOne().from(TasksTable.TABLE)
+                    .where(TasksTable.ID.eq(parentId))
+                    .and(TasksTable.OWNER_ID.eq(ownerId))
+            )
+            if (!owned) throw ForbiddenException("Reference parent_id=$parentId does not belong to the current scope")
+        }
+        ref("location_id")?.let { locationId ->
+            val owned = tx.fetchExists(
+                tx.selectOne().from(LocationsTable.TABLE)
+                    .where(LocationsTable.ID.eq(locationId))
+                    .and(LocationsTable.OWNER_ID.eq(ownerId))
+            )
+            if (!owned) throw ForbiddenException("Reference location_id=$locationId does not belong to the current scope")
+        }
+    }
 
     private fun ownsList(tx: DSLContext, ownerId: UUID, listId: UUID): Boolean =
         tx.fetchExists(

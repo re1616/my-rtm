@@ -14,3 +14,6 @@ class ConflictException(message: String) : RuntimeException(message)
 
 /** 429 — rate limit exceeded. */
 class TooManyRequestsException(message: String, val retryAfterSeconds: Long = 1) : RuntimeException(message)
+
+/** 426 — client version too old, must upgrade. */
+class UpgradeRequiredException(message: String) : RuntimeException(message)

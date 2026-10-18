@@ -72,4 +72,54 @@ class ConfigTest {
     fun `validation accepts empty db name`() {
         ConfigValidator.validateDatabase("")
     }
+
+    // ── CFG-2: FCM and VAPID key validation ──
+
+    @Test
+    fun `validation rejects empty fcm key in prod`() {
+        val msg = try {
+            ConfigValidator.validatePush("", "", "01234567890123456789012345678901")
+            null
+        } catch (e: IllegalStateException) {
+            e.message ?: ""
+        }
+        if (msg == null) throw AssertionError("Expected IllegalStateException for empty FCM key")
+        assertTrue(msg.contains("FCM_SERVER_KEY"))
+    }
+
+    @Test
+    fun `validation accepts fcm key in prod`() {
+        ConfigValidator.validatePush("fcm-server-key-12345", "vapid-pub-key-1234567890123456",
+            "01234567890123456789012345678901")
+    }
+
+    @Test
+    fun `validation rejects short vapid private key in prod`() {
+        val msg = try {
+            ConfigValidator.validatePush("fcm-key", "vapid-pub-key", "short")
+            null
+        } catch (e: IllegalStateException) {
+            e.message ?: ""
+        }
+        if (msg == null) throw AssertionError("Expected IllegalStateException for short VAPID key")
+        assertTrue(msg.contains("VAPID_PRIVATE_KEY"))
+    }
+
+    @Test
+    fun `validation rejects empty vapid public key in prod`() {
+        val msg = try {
+            ConfigValidator.validatePush("fcm-key", "", "01234567890123456789012345678901")
+            null
+        } catch (e: IllegalStateException) {
+            e.message ?: ""
+        }
+        if (msg == null) throw AssertionError("Expected IllegalStateException for empty VAPID public key")
+        assertTrue(msg.contains("VAPID_PUBLIC_KEY"))
+    }
+
+    @Test
+    fun `validation skips all push checks in dev mode`() {
+        // Empty keys should be accepted in dev mode
+        ConfigValidator.validatePush("", "", "", isDev = true)
+    }
 }

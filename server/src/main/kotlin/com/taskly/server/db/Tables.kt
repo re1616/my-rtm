@@ -120,6 +120,14 @@ object ProcessedOpsTable {
     val TS = DSL.field(DSL.name("ts"), SQLDataType.TIMESTAMPWITHTIMEZONE.nullable(false).defaultValue(DSL.function("now", SQLDataType.TIMESTAMPWITHTIMEZONE)))
 }
 
+object LocationsTable {
+    val TABLE: Table<Record> = DSL.table(DSL.name("locations"))
+    val ID = DSL.field(DSL.name("id"), SQLDataType.UUID.nullable(false).defaultValue(DSL.field("gen_random_uuid()", SQLDataType.UUID)))
+    val OWNER_ID = DSL.field(DSL.name("owner_id"), SQLDataType.UUID.nullable(false))
+    val NAME = DSL.field(DSL.name("name"), SQLDataType.CLOB.nullable(false))
+    val CREATED_AT = DSL.field(DSL.name("created_at"), SQLDataType.TIMESTAMPWITHTIMEZONE.nullable(false).defaultValue(DSL.function("now", SQLDataType.TIMESTAMPWITHTIMEZONE)))
+}
+
 object OutboxTable {
     val TABLE: Table<Record> = DSL.table(DSL.name("outbox"))
     val ID = DSL.field(DSL.name("id"), SQLDataType.BIGINT.nullable(false))

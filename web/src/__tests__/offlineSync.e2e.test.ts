@@ -1,5 +1,6 @@
 // End-to-end AC-7 against a real Taskly server (runs in CI after `./gradlew :server:run`).
 // Skipped unless TASKLY_E2E_URL is set, e.g. TASKLY_E2E_URL=http://localhost:8080.
+// When TASKLY_E2E_REQUIRED=true, the test fails with an explicit message if the environment is unavailable.
 import { describe, it, expect, beforeEach } from 'vitest';
 import { getDb, initializeDb } from '../db/database';
 import { createTask, completeTask, getPendingSyncOps, getTasksByList } from '../entities/taskRepository';
@@ -8,6 +9,16 @@ import { apiRequest, register } from '../api/client';
 
 const baseUrl = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env
   .TASKLY_E2E_URL;
+const e2eRequired = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env
+  .TASKLY_E2E_REQUIRED === 'true';
+
+if (!baseUrl && e2eRequired) {
+  throw new Error(
+    'E2E tests are required (TASKLY_E2E_REQUIRED=true) but TASKLY_E2E_URL is not set. ' +
+    'Cannot run offline-sync E2E tests against the real server. ' +
+    'Start the server first: ./gradlew :server:run'
+  );
+}
 
 let online = true;
 const flakyFetch: typeof fetch = (input, init) => {

@@ -74,6 +74,7 @@ jobs:
         shell: bash
         env:
           TASKLY_E2E_URL: http://localhost:8080
+          TASKLY_E2E_REQUIRED: "true"
         run: |
           npm ci
           npx vitest run src/__tests__/offlineSync.e2e.test.ts --reporter=default --reporter=github-actions 2>&1 | tee ../vitest-e2e.log; exit ${PIPESTATUS[0]}

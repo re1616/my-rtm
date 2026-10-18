@@ -2,7 +2,9 @@ package com.taskly.server.sync
 
 import com.taskly.server.Config
 import com.taskly.server.dto.*
+import com.taskly.server.errors.UpgradeRequiredException
 import com.taskly.server.tasks.requireUserId
+import com.taskly.server.sync.SyncVersion
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
@@ -11,6 +13,12 @@ import io.ktor.server.request.*
 
 fun Route.syncRoutes() {
     post("/v1/sync") {
+        // SYNC-7: validate sync version header
+        val versionResult = SyncVersion.validate(call.request.headers["Taskly-Sync-Version"])
+        if (!versionResult.accepted) {
+            throw UpgradeRequiredException(versionResult.error ?: "Sync version not accepted")
+        }
+
         val userId = requireUserId(call)
         val request = call.receive<SyncRequest>()
         val response = SyncService.processOperations(userId, request.ops, Config.sync.maxBatchSize)
@@ -18,6 +26,12 @@ fun Route.syncRoutes() {
     }
 
     get("/v1/sync/changes") {
+        // SYNC-7: validate sync version header
+        val versionResult = SyncVersion.validate(call.request.headers["Taskly-Sync-Version"])
+        if (!versionResult.accepted) {
+            throw UpgradeRequiredException(versionResult.error ?: "Sync version not accepted")
+        }
+
         val userId = requireUserId(call)
         val scope = call.request.queryParameters["scope"]
             ?: return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing scope parameter"))

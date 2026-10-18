@@ -278,6 +278,299 @@ class SecurityTest {
             "SEC-5: Missing auth header should be rejected")
     }
 
+    // ── SEC-2: Reference checks ──
+
+    @Test
+    fun `SEC-2 foreign parent_id in sync create is rejected`() = testApplication {
+        application { moduleForTest() }
+
+        val emailA = "sec2a-${System.currentTimeMillis()}@test.taskly"
+        val regA = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$emailA","password":"Test123!"}""")
+        }
+        val userA = json.decodeFromString<AuthMapper>(regA.bodyAsText())
+
+        val emailB = "sec2b-${System.currentTimeMillis()}@test.taskly"
+        val regB = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$emailB","password":"Test123!"}""")
+        }
+        val userB = json.decodeFromString<AuthMapper>(regB.bodyAsText())
+
+        // User A creates a task
+        val taskIdA = "00000000-0000-0000-0000-0000000000e1"
+        client.post("/v1/sync") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(userA.accessToken)
+            setBody("""{"ops":[{"opId":"sec2-a1","scope":"user:${userA.userId}","entity":"task","entityId":"$taskIdA","type":"create","fields":{"name":"A's Task","listId":"00000000-0000-0000-0000-000000000001"}}]}""")
+        }
+
+        // User B tries to create a task with parent_id pointing to A's task
+        val taskIdB = "00000000-0000-0000-0000-0000000000a2"
+        val resp = client.post("/v1/sync") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(userB.accessToken)
+            setBody("""{"ops":[{"opId":"sec2-b1","scope":"user:${userB.userId}","entity":"task","entityId":"$taskIdB","type":"create","fields":{"name":"B's Task","parentId":"$taskIdA","listId":"00000000-0000-0000-0000-000000000001"}}]}""")
+        }
+        val body = json.decodeFromString<SyncResults>(resp.bodyAsText())
+        assertEquals("forbidden", body.results[0].status,
+            "SEC-2: Foreign parent_id should be rejected with forbidden")
+    }
+
+    @Test
+    fun `SEC-2 foreign location_id in sync is rejected`() = testApplication {
+        application { moduleForTest() }
+
+        val emailA = "sec2c-${System.currentTimeMillis()}@test.taskly"
+        val regA = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$emailA","password":"Test123!"}""")
+        }
+        val userA = json.decodeFromString<AuthMapper>(regA.bodyAsText())
+
+        val emailB = "sec2d-${System.currentTimeMillis()}@test.taskly"
+        val regB = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$emailB","password":"Test123!"}""")
+        }
+        val userB = json.decodeFromString<AuthMapper>(regB.bodyAsText())
+
+        // User A creates a location
+        val locId = "00000000-0000-0000-0000-0000000000f1"
+        client.post("/v1/sync") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(userA.accessToken)
+            setBody("""{"ops":[{"opId":"sec2-loc1","scope":"user:${userA.userId}","entity":"location","entityId":"$locId","type":"create","fields":{"name":"Home"}}]}""")
+        }
+
+        // User B tries to create a task referencing A's location
+        val taskId = "00000000-0000-0000-0000-0000000000f2"
+        val resp = client.post("/v1/sync") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(userB.accessToken)
+            setBody("""{"ops":[{"opId":"sec2-loc2","scope":"user:${userB.userId}","entity":"task","entityId":"$taskId","type":"create","fields":{"name":"B's Task","locationId":"$locId","listId":"00000000-0000-0000-0000-000000000001"}}]}""")
+        }
+        val body = json.decodeFromString<SyncResults>(resp.bodyAsText())
+        assertEquals("forbidden", body.results[0].status,
+            "SEC-2: Foreign location_id should be rejected")
+    }
+
+    @Test
+    fun `SEC-2 own parent_id in sync is accepted`() = testApplication {
+        application { moduleForTest() }
+
+        val email = "sec2e-${System.currentTimeMillis()}@test.taskly"
+        val reg = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$email","password":"Test123!"}""")
+        }
+        val user = json.decodeFromString<AuthMapper>(reg.bodyAsText())
+
+        // Create parent task
+        val parentId = "00000000-0000-0000-0000-0000000cafe1"
+        client.post("/v1/sync") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(user.accessToken)
+            setBody("""{"ops":[{"opId":"sec2-p1","scope":"user:${user.userId}","entity":"task","entityId":"$parentId","type":"create","fields":{"name":"Parent","listId":"00000000-0000-0000-0000-000000000001"}}]}""")
+        }
+
+        // Create child task with own parent_id
+        val childId = "00000000-0000-0000-0000-0000000cafe2"
+        val resp = client.post("/v1/sync") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(user.accessToken)
+            setBody("""{"ops":[{"opId":"sec2-c1","scope":"user:${user.userId}","entity":"task","entityId":"$childId","type":"create","fields":{"name":"Child","parentId":"$parentId","listId":"00000000-0000-0000-0000-000000000001"}}]}""")
+        }
+        val body = json.decodeFromString<SyncResults>(resp.bodyAsText())
+        assertEquals("ok", body.results[0].status,
+            "SEC-2: Own parent_id should be accepted")
+    }
+
+    // ── SEC-4: Access matrix expansion ──
+
+    @Test
+    fun `SEC-4 owner can create list`() = testApplication {
+        application { moduleForTest() }
+        val email = "sec4a-${System.currentTimeMillis()}@test.taskly"
+        val reg = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$email","password":"Test123!"}""")
+        }
+        val user = json.decodeFromString<AuthMapper>(reg.bodyAsText())
+
+        val resp = client.post("/v1/lists") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(user.accessToken)
+            setBody("""{"name":"My List"}""")
+        }
+        assertEquals(HttpStatusCode.Created, resp.status, "Owner should be able to create a list")
+    }
+
+    @Test
+    fun `SEC-4 stranger cannot read anothers list`() = testApplication {
+        application { moduleForTest() }
+
+        val emailA = "sec4b-${System.currentTimeMillis()}@test.taskly"
+        val regA = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$emailA","password":"Test123!"}""")
+        }
+        val userA = json.decodeFromString<AuthMapper>(regA.bodyAsText())
+
+        val listResp = client.post("/v1/lists") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(userA.accessToken)
+            setBody("""{"name":"Secret"}""")
+        }
+        val listBody = json.decodeFromString<ListMapper>(listResp.bodyAsText())
+
+        val emailB = "sec4c-${System.currentTimeMillis()}@test.taskly"
+        val regB = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$emailB","password":"Test123!"}""")
+        }
+        val userB = json.decodeFromString<AuthMapper>(regB.bodyAsText())
+
+        // Stranger tries to read
+        val getResp = client.get("/v1/lists/${listBody.id}") {
+            bearerAuth(userB.accessToken)
+        }
+        assertEquals(HttpStatusCode.NotFound, getResp.status,
+            "SEC-4: Stranger should not see another user's list")
+    }
+
+    @Test
+    fun `SEC-4 stranger cannot create task in anothers list via REST`() = testApplication {
+        application { moduleForTest() }
+
+        val emailA = "sec4d-${System.currentTimeMillis()}@test.taskly"
+        val regA = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$emailA","password":"Test123!"}""")
+        }
+        val userA = json.decodeFromString<AuthMapper>(regA.bodyAsText())
+
+        val listResp = client.post("/v1/lists") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(userA.accessToken)
+            setBody("""{"name":"Secret"}""")
+        }
+        val listBody = json.decodeFromString<ListMapper>(listResp.bodyAsText())
+
+        val emailB = "sec4e-${System.currentTimeMillis()}@test.taskly"
+        val regB = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$emailB","password":"Test123!"}""")
+        }
+        val userB = json.decodeFromString<AuthMapper>(regB.bodyAsText())
+
+        val createResp = client.post("/v1/tasks") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(userB.accessToken)
+            setBody("""{"name":"Hacked","listId":"${listBody.id}"}""")
+        }
+        assertEquals(HttpStatusCode.Forbidden, createResp.status,
+            "SEC-4: Stranger cannot create a task in another user's list")
+    }
+
+    @Test
+    fun `SEC-4 stranger cannot sync into anothers scope`() = testApplication {
+        application { moduleForTest() }
+
+        val emailA = "sec4f-${System.currentTimeMillis()}@test.taskly"
+        val regA = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$emailA","password":"Test123!"}""")
+        }
+        val userA = json.decodeFromString<AuthMapper>(regA.bodyAsText())
+
+        val emailB = "sec4g-${System.currentTimeMillis()}@test.taskly"
+        val regB = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$emailB","password":"Test123!"}""")
+        }
+        val userB = json.decodeFromString<AuthMapper>(regB.bodyAsText())
+
+        // User B tries to sync into User A's scope
+        val resp = client.post("/v1/sync") {
+            contentType(ContentType.Application.Json)
+            bearerAuth(userB.accessToken)
+            setBody("""{"ops":[{"opId":"sec4-s1","scope":"user:${userA.userId}","entity":"task","entityId":"00000000-0000-0000-0000-0000000dead1","type":"create","fields":{"name":"Stolen"}}]}""")
+        }
+        assertEquals(HttpStatusCode.OK, resp.status)
+        val body = json.decodeFromString<SyncResults>(resp.bodyAsText())
+        assertEquals("forbidden", body.results[0].status,
+            "SEC-4: User B should be forbidden from working in User A's scope")
+    }
+
+    // ── SEC-5: Refresh token replay detection ──
+
+    @Test
+    fun `SEC-5 refresh token replay revokes whole chain`() = testApplication {
+        application { moduleForTest() }
+
+        val email = "sec5r-${System.currentTimeMillis()}@test.taskly"
+        val reg = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"$email","password":"Test123!"}""")
+        }
+        val user = json.decodeFromString<AuthMapper>(reg.bodyAsText())
+        val originalRefresh = user.refreshToken ?: throw AssertionError("Should have refresh token")
+
+        // Normal rotation: refresh once
+        val refresh1 = client.post("/v1/auth/refresh") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"refreshToken":"$originalRefresh"}""")
+        }
+        assertEquals(HttpStatusCode.OK, refresh1.status)
+        val rotated = json.decodeFromString<AuthMapper>(refresh1.bodyAsText())
+
+        // Refresh again with original token (replay) — should revoke entire chain
+        val replay = client.post("/v1/auth/refresh") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"refreshToken":"$originalRefresh"}""")
+        }
+        assertEquals(HttpStatusCode.Unauthorized, replay.status,
+            "SEC-5: Replay of rotated refresh token should be rejected")
+
+        // Even the rotated token should now be revoked
+        val rotatedReplay = client.post("/v1/auth/refresh") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"refreshToken":"${rotated.refreshToken}"}""")
+        }
+        assertEquals(HttpStatusCode.Unauthorized, rotatedReplay.status,
+            "SEC-5: After replay detection, the rotated token should also be revoked")
+    }
+
+    @Test
+    fun `SEC-5 concurrent refresh with the same token rotates at most once`() = testApplication {
+        application { moduleForTest() }
+
+        val reg = client.post("/v1/auth/register") {
+            contentType(ContentType.Application.Json)
+            setBody("""{"email":"sec5c-${System.nanoTime()}@test.taskly","password":"Test123!"}""")
+        }
+        val token = json.decodeFromString<AuthMapper>(reg.bodyAsText()).refreshToken
+            ?: throw AssertionError("Should have refresh token")
+
+        // Fire the same token from several threads at once
+        val threads = 8
+        val start = java.util.concurrent.CountDownLatch(1)
+        val pool = java.util.concurrent.Executors.newFixedThreadPool(threads)
+        val results = (1..threads).map {
+            pool.submit<Boolean> {
+                start.await()
+                runCatching { AuthService.refreshToken(token) }.isSuccess
+            }
+        }
+        start.countDown()
+        val successes = results.count { it.get() }
+        pool.shutdown()
+
+        assertTrue(successes <= 1, "SEC-5: one refresh token must rotate at most once, got $successes")
+    }
+
     // DTOs
     @Serializable
     data class AuthMapper(val accessToken: String, val refreshToken: String? = null, val userId: String)
@@ -285,4 +578,8 @@ class SecurityTest {
     data class ListMapper(val id: String, val name: String, val isSmart: Boolean = false, val version: Long, val createdAt: String)
     @Serializable
     data class TaskMapper(val id: String, val name: String, val listId: String, val version: Long, val createdAt: String, val updatedAt: String)
+    @Serializable
+    data class SyncResultMapper(val opId: String, val status: String, val entityId: String? = null, val version: Long? = null, val error: String? = null)
+    @Serializable
+    data class SyncResults(val results: List<SyncResultMapper>)
 }
