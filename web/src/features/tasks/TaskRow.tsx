@@ -8,6 +8,7 @@ interface TaskRowProps {
   onToggleSelect: (id: string) => void;
   onComplete: (id: string) => void;
   onDelete: (id: string) => void;
+  onClick?: (id: string) => void;
 }
 
 function formatDueDate(dateStr?: string): { text: string; className: string } {
@@ -42,6 +43,7 @@ const TaskRow: React.FC<TaskRowProps> = ({
   onToggleSelect,
   onComplete,
   onDelete,
+  onClick,
 }) => {
   const due = formatDueDate(task.dueDate);
   const hasNotes = !!task.notes;
@@ -55,7 +57,7 @@ const TaskRow: React.FC<TaskRowProps> = ({
     (task.priority ? ' task-row--priority-' + task.priority : '');
 
   return (
-    <div className={rowClass} onClick={() => onToggleSelect(task.id)}>
+    <div className={rowClass} onClick={() => onClick?.(task.id) ?? onToggleSelect(task.id)}>
       <div className="task-row-checkbox">
         <input
           type="checkbox"

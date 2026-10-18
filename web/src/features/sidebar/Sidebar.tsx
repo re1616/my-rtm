@@ -1,4 +1,4 @@
-// Taskly Web — Sidebar with system views
+// Taskly Web — Sidebar with system views and navigation
 import React from 'react';
 import type { AppView } from '../../types';
 import store from '../../store/taskStore';
@@ -11,37 +11,37 @@ const systemViews: {
 }[] = [
   {
     id: 'inbox',
-    label: '\u0412\u0445\u043E\u0434\u044F\u0449\u0438\u0435',
+    label: 'Входящие',
     icon: '\u{1F4E5}',
     view: { kind: 'system', view: 'inbox' },
   },
   {
     id: 'today',
-    label: '\u0421\u0435\u0433\u043E\u0434\u043D\u044F',
+    label: 'Сегодня',
     icon: '\u{1F4C5}',
     view: { kind: 'system', view: 'today' },
   },
   {
     id: 'overdue',
-    label: '\u041F\u0440\u043E\u0441\u0440\u043E\u0447\u0435\u043D\u043E',
+    label: 'Просрочено',
     icon: '\u26A0\uFE0F',
     view: { kind: 'system', view: 'overdue' },
   },
   {
     id: 'week',
-    label: '\u041D\u0435\u0434\u0435\u043B\u044F',
+    label: 'Неделя',
     icon: '\u{1F4C6}',
     view: { kind: 'system', view: 'week' },
   },
   {
     id: 'all',
-    label: '\u0412\u0441\u0435 \u0437\u0430\u0434\u0430\u0447\u0438',
+    label: 'Все задачи',
     icon: '\u{1F4CB}',
     view: { kind: 'system', view: 'all' },
   },
   {
     id: 'completed',
-    label: '\u0412\u044B\u043F\u043E\u043B\u043D\u0435\u043D\u043D\u044B\u0435',
+    label: 'Выполненные',
     icon: '\u2705',
     view: { kind: 'system', view: 'completed' },
   },
@@ -53,15 +53,16 @@ const Sidebar: React.FC<{ currentView: AppView }> = ({ currentView }) => {
   const lists = storeState.lists;
 
   function countForView(view: AppView): number {
-    // Simple count based on current tasks shown; in production would filter properly
     if (view.kind === 'system') {
       if (view.view === 'completed') {
         return tasks.filter((t) => !!t.completedAt).length;
       }
       return tasks.filter((t) => !t.completedAt).length;
     }
-    return tasks.filter((t) => t.listId === view.listId && !t.completedAt)
-      .length;
+    if (view.kind === 'list' || view.kind === 'smart') {
+      return tasks.filter((t) => t.listId === view.listId && !t.completedAt).length;
+    }
+    return 0;
   }
 
   function isActive(view: AppView): boolean {
@@ -76,7 +77,23 @@ const Sidebar: React.FC<{ currentView: AppView }> = ({ currentView }) => {
         currentView.kind === 'list' && currentView.listId === view.listId
       );
     }
+    if (view.kind === 'smart') {
+      return (
+        currentView.kind === 'smart' && currentView.listId === view.listId
+      );
+    }
     return false;
+  }
+
+  function navigateTo(view: AppView) {
+    store.getState().setCurrentView(view);
+    window.dispatchEvent(
+      new CustomEvent('taskly-navigate', { detail: view }),
+    );
+  }
+
+  function isPageActive(kind: string): boolean {
+    return currentView.kind === kind;
   }
 
   return (
@@ -87,7 +104,7 @@ const Sidebar: React.FC<{ currentView: AppView }> = ({ currentView }) => {
 
       <div className="sidebar-section">
         <div className="sidebar-section-title">
-          \u041F\u0440\u0435\u0434\u0441\u0442\u0430\u0432\u043B\u0435\u043D\u0438\u044F
+          Представления
         </div>
         {systemViews.map((sv) => (
           <button
@@ -95,13 +112,7 @@ const Sidebar: React.FC<{ currentView: AppView }> = ({ currentView }) => {
             className={`sidebar-item ${
               isActive(sv.view) ? 'sidebar-item--active' : ''
             }`}
-            onClick={() => {
-              store.getState().setCurrentView(sv.view);
-              // Trigger task reload via the app-layer
-              window.dispatchEvent(
-                new CustomEvent('taskly-navigate', { detail: sv.view }),
-              );
-            }}
+            onClick={() => navigateTo(sv.view)}
           >
             <span className="sidebar-item-icon">{sv.icon}</span>
             <span className="sidebar-item-label">{sv.label}</span>
@@ -113,7 +124,7 @@ const Sidebar: React.FC<{ currentView: AppView }> = ({ currentView }) => {
       {lists.length > 0 && (
         <div className="sidebar-section">
           <div className="sidebar-section-title">
-            \u0421\u043F\u0438\u0441\u043A\u0438
+            Списки
           </div>
           {lists
             .filter((l) => !l.isSystem)
@@ -125,12 +136,7 @@ const Sidebar: React.FC<{ currentView: AppView }> = ({ currentView }) => {
                   className={`sidebar-item ${
                     isActive(listView) ? 'sidebar-item--active' : ''
                   }`}
-                  onClick={() => {
-                    store.getState().setCurrentView(listView);
-                    window.dispatchEvent(
-                      new CustomEvent('taskly-navigate', { detail: listView }),
-                    );
-                  }}
+                  onClick={() => navigateTo(listView)}
                 >
                   <span className="sidebar-item-icon">{list.color ? '\u25CF' : '\u25CB'}</span>
                   <span className="sidebar-item-label">{list.name}</span>
@@ -145,7 +151,33 @@ const Sidebar: React.FC<{ currentView: AppView }> = ({ currentView }) => {
 
       <div className="sidebar-footer">
         <div className="sidebar-sync-status">
-          {storeState.isOnline ? '\u0412 \u0441\u0435\u0442\u0438' : '\u041E\u0444\u043B\u0430\u0439\u043D'}
+          {storeState.isOnline ? 'В сети' : 'Офлайн'}
+        </div>
+        <div className="sidebar-nav-links">
+          <button
+            className={`sidebar-nav-link ${
+              isPageActive('smart-lists') ? 'sidebar-item--active' : ''
+            }`}
+            onClick={() => navigateTo({ kind: 'smart-lists' })}
+          >
+            🔍 Умные списки
+          </button>
+          <button
+            className={`sidebar-nav-link ${
+              isPageActive('settings') ? 'sidebar-item--active' : ''
+            }`}
+            onClick={() => navigateTo({ kind: 'settings' })}
+          >
+            ⚙️ Настройки
+          </button>
+          <button
+            className={`sidebar-nav-link ${
+              isPageActive('onboarding') ? 'sidebar-item--active' : ''
+            }`}
+            onClick={() => navigateTo({ kind: 'onboarding' })}
+          >
+            🎓 Обучение
+          </button>
         </div>
       </div>
     </nav>

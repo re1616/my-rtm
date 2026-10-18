@@ -17,6 +17,7 @@ interface TaskListProps {
   view: AppView;
   tasks: Task[];
   isOnline: boolean;
+  onTaskClick?: (taskId: string) => void;
 }
 
 async function handleSmartAdd(result: SmartAddResult): Promise<void> {
@@ -36,7 +37,11 @@ async function handleSmartAdd(result: SmartAddResult): Promise<void> {
   const refreshed = await getTasksByList(
     storeState.currentView.kind === 'system'
       ? `sys-${storeState.currentView.view}`
-      : storeState.currentView.listId,
+      : storeState.currentView.kind === 'task-detail'
+        ? 'sys-all'
+        : storeState.currentView.kind === 'list' || storeState.currentView.kind === 'smart'
+          ? storeState.currentView.listId
+          : 'sys-all',
     {
       showCompleted: storeState.showCompleted,
       sortBy: storeState.sortBy,
@@ -46,8 +51,9 @@ async function handleSmartAdd(result: SmartAddResult): Promise<void> {
   store.getState().setTasks(refreshed);
 }
 
-const TaskList: React.FC<TaskListProps> = ({ view, tasks, isOnline }) => {
+const TaskList: React.FC<TaskListProps> = ({ view, tasks, isOnline, onTaskClick }) => {
   const viewName = getViewName(view);
+  const listId = getListIdForView(view);
 
   return (
     <div className="task-list">
@@ -75,7 +81,7 @@ const TaskList: React.FC<TaskListProps> = ({ view, tasks, isOnline }) => {
 
       {tasks.length === 0 ? (
         <div className="task-list-empty">
-          <div className="task-list-empty-icon">✓</div>
+          <div className="task-list-empty-icon">\u2713</div>
           <p>\u0412\u0441\u0435 \u0437\u0430\u0434\u0430\u0447\u0438 \u0440\u0430\u0437\u043E\u0431\u0440\u0430\u043D\u044B</p>
           <p className="task-list-empty-hint">
             \u0418\u0441\u043F\u043E\u043B\u044C\u0437\u0443\u0439\u0442\u0435 \u043F\u043E\u043B\u0435 \u0432\u0432\u043E\u0434\u0430 \u0432\u044B\u0448\u0435 \u0434\u043B\u044F \u0431\u044B\u0441\u0442\u0440\u043E\u0433\u043E \u0434\u043E\u0431\u0430\u0432\u043B\u0435\u043D\u0438\u044F
@@ -89,6 +95,7 @@ const TaskList: React.FC<TaskListProps> = ({ view, tasks, isOnline }) => {
               task={task}
               isSelected={store.getState().selectedTaskIds.includes(task.id)}
               onToggleSelect={(id) => store.getState().toggleTaskSelection(id)}
+              onClick={onTaskClick}
               onComplete={async (id) => {
                 if (task.completedAt) {
                   await completeTask(id);
@@ -99,7 +106,9 @@ const TaskList: React.FC<TaskListProps> = ({ view, tasks, isOnline }) => {
                 const refreshed = await getTasksByList(
                   storeState.currentView.kind === 'system'
                     ? `sys-${storeState.currentView.view}`
-                    : storeState.currentView.listId,
+                    : storeState.currentView.kind === 'list' || storeState.currentView.kind === 'smart'
+                      ? storeState.currentView.listId
+                      : 'sys-all',
                   {
                     showCompleted: storeState.showCompleted,
                     sortBy: storeState.sortBy,
@@ -114,7 +123,9 @@ const TaskList: React.FC<TaskListProps> = ({ view, tasks, isOnline }) => {
                 const refreshed = await getTasksByList(
                   storeState.currentView.kind === 'system'
                     ? `sys-${storeState.currentView.view}`
-                    : storeState.currentView.listId,
+                    : storeState.currentView.kind === 'list' || storeState.currentView.kind === 'smart'
+                      ? storeState.currentView.listId
+                      : 'sys-all',
                   {
                     showCompleted: storeState.showCompleted,
                     sortBy: storeState.sortBy,
@@ -143,8 +154,19 @@ function getViewName(view: AppView): string {
     };
     return names[view.view] || view.view;
   }
+  if (view.kind === 'settings') return '\u041D\u0430\u0441\u0442\u0440\u043E\u0439\u043A\u0438';
+  if (view.kind === 'onboarding') return '\u041E\u0431\u0443\u0447\u0435\u043D\u0438\u0435';
+  if (view.kind === 'smart-lists') return '\u0423\u043C\u043D\u044B\u0435 \u0441\u043F\u0438\u0441\u043A\u0438';
+  if (view.kind === 'task-detail') return '\u0417\u0430\u0434\u0430\u0447\u0430';
   if (view.kind === 'list') return '\u0421\u043F\u0438\u0441\u043E\u043A';
-  return '\u0423\u043C\u043D\u044B\u0439 \u0441\u043F\u0438\u0441\u043E\u043A';
+  if (view.kind === 'smart') return '\u0423\u043C\u043D\u044B\u0439 \u0441\u043F\u0438\u0441\u043E\u043A';
+  return '\u0417\u0430\u0434\u0430\u0447\u0438';
+}
+
+function getListIdForView(view: AppView): string {
+  if (view.kind === 'system') return 'sys-' + view.view;
+  if (view.kind === 'list' || view.kind === 'smart') return view.listId;
+  return 'sys-all';
 }
 
 export default TaskList;
