@@ -36,6 +36,13 @@ data class RateLimitConfig(
 object Config {
     private val config = ConfigFactory.load().getConfig("taskly")
 
+    /** Built-in development secret from application.conf — never acceptable outside dev. */
+    const val DEV_JWT_SECRET = "taskly-dev-secret-change-in-production-min-256bits!!"
+
+    /** "dev" by default; set TASKLY_ENV=production (or anything else) in real deployments. */
+    val env: String = config.getString("env")
+    val isDev: Boolean get() = env.equals("dev", ignoreCase = true)
+
     val database = DatabaseConfig(
         host = config.getString("database.host"),
         port = config.getInt("database.port"),
@@ -54,7 +61,7 @@ object Config {
         jwtSecret = config.getString("auth.jwtSecret"),
         accessTokenExpiryMinutes = config.getLong("auth.accessTokenExpiryMinutes"),
         refreshTokenExpiryDays = config.getInt("auth.refreshTokenExpiryDays")
-    )
+    ).also { validateAuth(it, isDev) }
 
     val sync = SyncConfig(
         maxBatchSize = config.getInt("sync.maxBatchSize")
@@ -64,4 +71,15 @@ object Config {
         tokensPerSecond = config.getInt("rateLimit.tokensPerSecond"),
         burstSize = config.getInt("rateLimit.burstSize")
     )
+}
+/**
+ * Fails fast when the JWT secret is unsafe for the current environment:
+ * outside dev the built-in secret is rejected and a secret must be at least 32 chars.
+ */
+fun validateAuth(auth: AuthConfig, isDev: Boolean) {
+    if (isDev) return
+    require(auth.jwtSecret != Config.DEV_JWT_SECRET) {
+        "JWT_SECRET must be set outside dev (TASKLY_ENV != dev); refusing to start with the built-in dev secret"
+    }
+    require(auth.jwtSecret.length >= 32) { "JWT_SECRET must be at least 32 characters" }
 }
