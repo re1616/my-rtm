@@ -43,9 +43,14 @@ jobs:
           java-version: "21"
       - uses: gradle/actions/setup-gradle@v4
       - name: Shared tests (JVM + JS)
-        run: ./gradlew :shared:allTests --console=plain
+        shell: bash
+        run: ./gradlew :shared:allTests --console=plain 2>&1 | tee gradle-shared.log; exit ${PIPESTATUS[0]}
       - name: Server tests (unit + integration on PG/Redis)
-        run: ./gradlew :server:test :server:integrationTest --console=plain
+        shell: bash
+        run: ./gradlew :server:test :server:integrationTest --console=plain --continue 2>&1 | tee gradle-server.log; exit ${PIPESTATUS[0]}
+      - name: Report failures as annotations
+        if: failure()
+        run: python3 .github/scripts/report_failures.py gradle-shared.log gradle-server.log
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4
