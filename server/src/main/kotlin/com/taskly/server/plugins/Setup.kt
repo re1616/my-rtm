@@ -17,6 +17,7 @@ import com.taskly.server.tasks.taskRoutes
 import com.taskly.server.lists.listRoutes
 import com.taskly.server.tags.tagRoutes
 import com.taskly.server.sync.syncRoutes
+import com.taskly.server.features.featuresRoutes
 import com.taskly.server.websocket.WebSocketService
 
 private val logger = LoggerFactory.getLogger("Setup")
@@ -60,6 +61,7 @@ fun Application.configureRouting() {
         listRoutes()
         tagRoutes()
         syncRoutes()
+        featuresRoutes()
 
         webSocket("/v1/ws") {
             WebSocketService.handleSession(this)
