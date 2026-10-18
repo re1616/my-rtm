@@ -13,5 +13,19 @@ declare module '@taskly/shared' {
   ): string;
   /** null when the smart-list query is valid, otherwise the parser's message. */
   export function validateQuery(query: string): string | null | undefined;
+  /** null when valid, otherwise JSON { message, position? } (WEB-F5 error highlight). */
+  export function queryError(query: string): string | null | undefined;
+  /**
+   * Smart-list predicate shared with the server and Android (QA-3).
+   * Returns JSON { ids: string[] } or { error: string }.
+   */
+  export function filterTasks(
+    query: string,
+    tasksJson: string,
+    nowEpochMillis: number,
+    timeZone: string,
+    fallbackOffset: string,
+    contextJson: string,
+  ): string;
   export function todayIn(epochMillis: number, timeZone: string, fallbackOffset: string): string;
 }

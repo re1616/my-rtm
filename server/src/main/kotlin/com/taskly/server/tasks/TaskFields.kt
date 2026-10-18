@@ -38,6 +38,7 @@ object TaskFields {
         "repeatMode" to "repeat_mode", "repeat_mode" to "repeat_mode",
         "url" to "url",
         "completedAt" to "completed_at", "completed_at" to "completed_at",
+        "postponedCount" to "postponed_count", "postponed_count" to "postponed_count",
     )
 
     /** Canonical snake_case name, or null for fields the server does not accept. */
@@ -85,6 +86,9 @@ object TaskFields {
                 }
                 "url" -> out[TasksTable.URL] = str(el)
                 "completed_at" -> out[TasksTable.COMPLETED_AT] = timestamp(el, key)
+                "postponed_count" -> out[TasksTable.POSTPONED_COUNT] = (int(el) ?: 0).also {
+                    require(it >= 0) { "postponed_count must be >= 0" }
+                }
             }
         }
         return out

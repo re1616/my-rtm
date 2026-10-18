@@ -33,6 +33,9 @@ data class SnapshotResponse(
     val lists: List<ListResponse> = emptyList(),
     val tags: List<TagResponse> = emptyList(),
     val locations: List<LocationResponse> = emptyList(),
+    /** Notes and link attachments of the tasks on this page (WEB-F3). */
+    val notes: List<com.taskly.server.tasks.NoteResponse> = emptyList(),
+    val attachments: List<com.taskly.server.tasks.AttachmentResponse> = emptyList(),
     /** Pass as `cursor` for the next page; null on the last page. */
     val nextCursor: String? = null,
 )
@@ -83,6 +86,8 @@ object SnapshotService {
                     .where(LocationsTable.OWNER_ID.eq(ownerId))
                     .fetch { LocationResponse(it.value1().toString(), it.value2()) }
             } else emptyList(),
+            notes = com.taskly.server.tasks.TaskChildren.notesFor(ctx, ids),
+            attachments = com.taskly.server.tasks.TaskChildren.attachmentsFor(ctx, ids),
             nextCursor = if (rows.size > size) ids.last().toString() else null,
         )
     }

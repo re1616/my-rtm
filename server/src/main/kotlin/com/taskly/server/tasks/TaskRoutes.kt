@@ -60,6 +60,14 @@ fun Route.taskRoutes() {
         }
     }
 
+    // Change history of the task card (WEB-F3): task, its notes and attachments, newest first
+    get("/v1/tasks/{id}/history") {
+        val userId = requireUserId(call)
+        val taskId = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing task id"))
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: 100
+        call.respond(HttpStatusCode.OK, TaskChildren.history(userId, taskId, limit))
+    }
+
     patch("/v1/tasks/{id}") {
         val userId = requireUserId(call)
         val taskId = call.parameters["id"] ?: return@patch call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing task id"))
