@@ -18,7 +18,7 @@ import {
   refreshSession,
   type ApiDeps,
 } from '../../api/client';
-import type { Session, SyncOperation, Task, TaskList, TaskTag, TaskLocation } from '../../types';
+import type { Session, SyncOperation, Task, TaskList, TaskTag, TaskLocation, TaskNote, TaskAttachment } from '../../types';
 import store from '../../store/taskStore';
 import { backoffDelay } from './backoff';
 import { SyncLeadership, type SyncMessage } from './leader';
@@ -199,6 +199,8 @@ async function alignWithServer(deps: ApiDeps, session: Session, op: SyncOperatio
       if (op.type === 'create') {
         if (op.entity === 'tag') await db.tags.delete(op.entityId);
         if (op.entity === 'location') await db.locations.delete(op.entityId);
+        if (op.entity === 'note') await db.notes.delete(op.entityId);
+        if (op.entity === 'attachment') await db.attachments.delete(op.entityId);
         return true;
       }
       return false;
@@ -223,13 +225,20 @@ async function alignWithServer(deps: ApiDeps, session: Session, op: SyncOperatio
 }
 
 function toWire(op: SyncOperation, scope: string) {
+  let fields = op.fields;
+  // "sys-inbox" is the local marker for the server inbox (see taskRepository.wireListId)
+  if (op.entity === 'task' && fields?.listId === 'sys-inbox') {
+    fields = { ...fields };
+    if (serverInboxId) fields.listId = serverInboxId;
+    else delete fields.listId; // a create falls back to the server inbox by itself
+  }
   return {
     opId: op.opId,
     scope,
     entity: op.entity,
     entityId: op.entityId,
     type: op.type,
-    fields: op.fields,
+    fields,
     ...(op.baseVersion != null ? { baseVersion: op.baseVersion } : {}),
     clientTs: op.clientTs,
   };
@@ -291,6 +300,9 @@ interface TaskResponse {
   repeatMode?: string | null;
   completedAt?: string | null;
   url?: string | null;
+  parentId?: string | null;
+  locationId?: string | null;
+  postponedCount?: number | null;
   tags?: string[] | null;
   version: number;
   createdAt: string;
@@ -314,6 +326,8 @@ interface SnapshotPage {
   lists: ListResponse[];
   tags: { id: string; name: string; color?: string | null }[];
   locations: { id: string; name: string }[];
+  notes?: { id: string; taskId: string; content: string; createdAt: string; updatedAt: string }[];
+  attachments?: { id: string; taskId: string; name: string; url: string; createdAt: string }[];
   nextCursor?: string | null;
 }
 
@@ -340,8 +354,10 @@ async function taskFromResponse(t: TaskResponse, local?: Task): Promise<Task> {
     repeatMode: (t.repeatMode ?? undefined) as Task['repeatMode'],
     completedAt: t.completedAt ?? undefined,
     url: t.url ?? undefined,
+    parentId: t.parentId ?? undefined,
+    locationId: t.locationId ?? undefined,
     tags: tagNames,
-    postponedCount: local?.postponedCount ?? 0,
+    postponedCount: t.postponedCount ?? local?.postponedCount ?? 0,
     version: t.version,
     createdAt: t.createdAt,
     updatedAt: t.updatedAt,
@@ -384,7 +400,7 @@ export async function loadSnapshot(deps: ApiDeps = {}, onProgress?: (loaded: num
     const page = r.result;
     if (seq === null) seq = page.seq ?? 0;
     const pending = new Set((await db.syncQueue.toArray()).map((o) => o.entityId));
-    await db.transaction('rw', [db.tasks, db.lists, db.tags, db.locations, db.settings], async () => {
+    await db.transaction('rw', [db.tasks, db.lists, db.tags, db.locations, db.notes, db.attachments, db.settings], async () => {
       // Tags first: tasks reference them by id
       for (const tag of page.tags) {
         if (!pending.has(tag.id)) await db.tags.put({ id: tag.id, name: tag.name, color: tag.color ?? undefined, createdAt: new Date().toISOString() });
@@ -398,6 +414,12 @@ export async function loadSnapshot(deps: ApiDeps = {}, onProgress?: (loaded: num
       }
       for (const t of page.tasks) {
         if (!pending.has(t.id)) await db.tasks.put(await taskFromResponse(t, await db.tasks.get(t.id)));
+      }
+      for (const n of page.notes ?? []) {
+        if (!pending.has(n.id)) await db.notes.put({ id: n.id, taskId: n.taskId, content: n.content, createdAt: n.createdAt, updatedAt: n.updatedAt });
+      }
+      for (const a of page.attachments ?? []) {
+        if (!pending.has(a.id)) await db.attachments.put({ id: a.id, taskId: a.taskId, name: a.name, url: a.url, createdAt: a.createdAt });
       }
     });
     loaded += page.tasks.length;
@@ -436,6 +458,9 @@ function fromServerFields(p: Record<string, unknown>): Partial<Task> {
   if (has('repeat_mode')) out.repeatMode = (str(p.repeat_mode) as Task['repeatMode']) ?? undefined;
   if (has('completed_at')) out.completedAt = str(p.completed_at);
   if (has('url')) out.url = str(p.url);
+  if (has('parent_id')) out.parentId = str(p.parent_id);
+  if (has('location_id')) out.locationId = str(p.location_id);
+  if (has('postponed_count')) out.postponedCount = Number(p.postponed_count ?? 0);
   return out;
 }
 
@@ -458,7 +483,7 @@ export async function pullChanges(deps: ApiDeps = {}): Promise<number> {
 
     await db.transaction(
       'rw',
-      [db.tasks, db.lists, db.tags, db.locations, db.syncQueue, db.settings],
+      [db.tasks, db.lists, db.tags, db.locations, db.notes, db.attachments, db.syncQueue, db.settings],
       async () => {
       // Local edits that are not pushed yet win until they reach the server
       const pendingIds = new Set((await db.syncQueue.toArray()).map((o) => o.entityId));
@@ -479,6 +504,14 @@ export async function pullChanges(deps: ApiDeps = {}): Promise<number> {
             break;
           case 'location':
             await applyLocationChange(c);
+            applied++;
+            break;
+          case 'note':
+            await applyNoteChange(c);
+            applied++;
+            break;
+          case 'attachment':
+            await applyAttachmentChange(c);
             applied++;
             break;
           // unknown entity — skip silently (forward compat)
@@ -541,6 +574,18 @@ async function applyTaskChange(c: ChangeEntry): Promise<void> {
     case 'delete':
       if (existing) await db.tasks.update(c.entityId, { deletedAt: now, updatedAt: now });
       break;
+    case 'restore': {
+      const fields = fromServerFields(payload);
+      if (existing) {
+        await db.tasks.update(c.entityId, { ...fields, deletedAt: undefined, updatedAt: now });
+      } else {
+        await db.tasks.put({
+          id: c.entityId, listId: 'sys-inbox', name: '', priority: null, dueHasTime: false,
+          postponedCount: 0, tags: [], version: 1, createdAt: now, updatedAt: now, ...fields,
+        } as Task);
+      }
+      break;
+    }
     case 'tag_add':
     case 'tag_remove': {
       const tag = payload.tag as string | undefined;
@@ -574,24 +619,29 @@ async function applyListChange(c: ChangeEntry): Promise<void> {
     case 'create':
     case 'update': {
       const existing = await db.lists.get(c.entityId);
-      const fields: Record<string, unknown> = {};
-      if (has('name')) fields.name = String(payload.name);
-      if (c.op === 'create') {
+      // Payload keys as the writer sent them: camelCase (clients) or snake_case (REST)
+      const pick = (...keys: string[]) => keys.find((k) => has(k));
+      const update: Record<string, unknown> = { updatedAt: now };
+      if (has('name')) update.name = String(payload.name);
+      const sortKey = pick('sortOrder', 'sort_order');
+      if (sortKey) update.sortOrder = Number(payload[sortKey] ?? 0);
+      if (has('archived')) update.archived = payload.archived === true || payload.archived === 'true';
+      const smartKey = pick('isSmart', 'is_smart');
+      if (smartKey) update.isSmart = payload[smartKey] === true || payload[smartKey] === 'true';
+      if (has('query')) update.filterQuery = str(payload.query);
+      if (has('color')) update.color = str(payload.color);
+      if (existing) {
+        await db.lists.update(c.entityId, update);
+      } else if (c.op === 'create') {
         await db.lists.put({
           id: c.entityId,
-          name: String(payload.name ?? ''),
+          name: '',
           isSystem: false,
-          sortOrder: (payload.sort_order as number | undefined) ?? 0,
-          archived: has('archived') ? Boolean(payload.archived) : false,
+          sortOrder: 0,
+          archived: false,
           createdAt: now,
-          updatedAt: now,
+          ...update,
         } as TaskList);
-      } else if (existing) {
-        const update: Record<string, unknown> = { updatedAt: now };
-        if (has('name')) update.name = String(payload.name);
-        if (has('sort_order')) update.sortOrder = payload.sort_order;
-        if (has('archived')) update.archived = Boolean(payload.archived);
-        await db.lists.update(c.entityId, update);
       }
       break;
     }
@@ -681,10 +731,59 @@ async function applyLocationChange(c: ChangeEntry): Promise<void> {
   }
 }
 
+function parsePayload(c: ChangeEntry): Record<string, unknown> {
+  try {
+    return c.payload ? (JSON.parse(c.payload) as Record<string, unknown>) : {};
+  } catch {
+    return {};
+  }
+}
+
+/** Notes of the task card: { task_id, content } (WEB-F3). */
+async function applyNoteChange(c: ChangeEntry): Promise<void> {
+  const db = getDb();
+  const p = parsePayload(c);
+  const now = new Date().toISOString();
+  if (c.op === 'delete') {
+    await db.notes.delete(c.entityId);
+    return;
+  }
+  const existing = await db.notes.get(c.entityId);
+  const note: TaskNote = {
+    id: c.entityId,
+    taskId: String(p.task_id ?? existing?.taskId ?? ''),
+    content: String(p.content ?? existing?.content ?? ''),
+    createdAt: existing?.createdAt ?? now,
+    updatedAt: now,
+  };
+  if (note.taskId) await db.notes.put(note);
+}
+
+/** Link attachments: { task_id, name, url }. */
+async function applyAttachmentChange(c: ChangeEntry): Promise<void> {
+  const db = getDb();
+  if (c.op === 'delete') {
+    await db.attachments.delete(c.entityId);
+    return;
+  }
+  const p = parsePayload(c);
+  const att: TaskAttachment = {
+    id: c.entityId,
+    taskId: String(p.task_id ?? ''),
+    name: String(p.name ?? p.url ?? ''),
+    url: String(p.url ?? ''),
+    createdAt: new Date().toISOString(),
+  };
+  if (att.taskId && att.url) await db.attachments.put(att);
+}
+
 /** Push, then pull. Never throws: returns the resulting state for the UI. */
 export async function syncNow(deps: ApiDeps = {}): Promise<SyncState> {
   try {
     await loadServerInbox();
+    // The inbox id is needed to send "move to Inbox" (see toWire)
+    const signedIn = await getSession();
+    if (signedIn && (await getDb().settings.get(CURSOR_KEY))) await resolveServerInbox(deps, signedIn);
     const push = await pushPendingOps(deps);
     if (push.state !== 'idle') return push.state;
     if (!(await getDb().settings.get(CURSOR_KEY))) {
@@ -821,4 +920,12 @@ export function stopSyncService(): void {
   leadership?.close();
   leadership = null;
   onState = null;
+}
+
+/** Server change history of a task card (WEB-F3); null when signed out. Throws on network errors. */
+export async function fetchTaskHistory(taskId: string, deps: ApiDeps = {}): Promise<import('../../types').TaskHistoryEntry[] | null> {
+  const session = await getSession();
+  if (!session) return null;
+  const { result } = await authed<import('../../types').TaskHistoryEntry[]>(deps, session, 'GET', `/v1/tasks/${encodeURIComponent(taskId)}/history`);
+  return result;
 }

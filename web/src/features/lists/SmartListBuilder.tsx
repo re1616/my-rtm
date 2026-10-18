@@ -1,60 +1,232 @@
-// Taskly Web — Smart List Builder (scaffold)
-// Smart list constructor: query input, highlighting, save
-import React, { useState } from 'react';
+// Taskly Web — smart-list editor (WEB-F5): write the query or build it from conditions,
+// see the problem highlighted at its position, preview the matching tasks, save under a name.
+import React, { useMemo, useState } from 'react';
+import { useStore } from 'zustand';
+import store from '../../store/taskStore';
+import { checkQuery, runQuery } from '../query/smartQuery';
+import { createSmartList } from '../../entities/taskRepository';
+import { refreshData } from '../app/data';
+import { navigate } from '../sidebar/Sidebar';
+
+type FieldId =
+  | 'list' | 'tag' | 'priority' | 'due' | 'dueBefore' | 'dueWithin' | 'completed' | 'isRepeating'
+  | 'hasSubtasks' | 'location' | 'addedWithin' | 'postponed' | 'timeEstimate' | 'text';
+
+interface FieldDef {
+  id: FieldId;
+  label: string;
+  /** Fixed choices; free text when absent. */
+  options?: (ctx: { lists: string[]; tags: string[]; locations: string[] }) => { value: string; label: string }[];
+  placeholder?: string;
+}
+
+const YES_NO = () => [
+  { value: 'true', label: 'да' },
+  { value: 'false', label: 'нет' },
+];
+
+const FIELDS: FieldDef[] = [
+  { id: 'list', label: 'Список', options: (c) => c.lists.map((v) => ({ value: v, label: v })) },
+  { id: 'tag', label: 'Тег', options: (c) => c.tags.map((v) => ({ value: v, label: '#' + v })) },
+  { id: 'priority', label: 'Приоритет', options: () => ['1', '2', '3', 'none'].map((v) => ({ value: v, label: v === 'none' ? 'нет' : v })) },
+  {
+    id: 'due',
+    label: 'Срок',
+    options: () => [
+      { value: 'today', label: 'сегодня' },
+      { value: 'tomorrow', label: 'завтра' },
+      { value: 'overdue', label: 'просрочено' },
+      { value: 'this week', label: 'на этой неделе' },
+      { value: 'next week', label: 'на следующей неделе' },
+    ],
+  },
+  { id: 'dueBefore', label: 'Срок до', placeholder: 'tomorrow, 2026-12-31, 2 weeks' },
+  { id: 'dueWithin', label: 'Срок в пределах', placeholder: '1 week, 3 days' },
+  { id: 'completed', label: 'Выполнена', options: YES_NO },
+  { id: 'isRepeating', label: 'Повторяется', options: YES_NO },
+  { id: 'hasSubtasks', label: 'Есть подзадачи', options: YES_NO },
+  { id: 'location', label: 'Место', options: (c) => c.locations.map((v) => ({ value: v, label: v })) },
+  { id: 'addedWithin', label: 'Добавлена за', placeholder: '1 week, 30 days' },
+  { id: 'postponed', label: 'Отложена раз', placeholder: '>2' },
+  { id: 'timeEstimate', label: 'Оценка', placeholder: '<1 hour, >30 minutes' },
+  { id: 'text', label: 'Текст в названии', placeholder: 'слово' },
+];
+
+interface Condition {
+  field: FieldId;
+  value: string;
+  not: boolean;
+}
+
+function quote(v: string): string {
+  return /^[\w.<>=-]+$/u.test(v) && !/^(and|or|not)$/i.test(v) ? v : `"${v.replace(/"/g, '')}"`;
+}
+
+/** Conditions → query text in the shared language. */
+export function buildQuery(conditions: Condition[], join: 'AND' | 'OR'): string {
+  return conditions
+    .filter((c) => c.value.trim())
+    .map((c) => {
+      const v = c.value.trim();
+      const term = c.field === 'text' ? quote(v) : c.field === 'postponed' && /^[<>]=?\d+$/.test(v) ? `postponed:${v}` : `${c.field}:${quote(v)}`;
+      return c.not ? `NOT ${term}` : term;
+    })
+    .join(` ${join} `);
+}
 
 const SmartListBuilder: React.FC = () => {
+  const lists = useStore(store, (s) => s.lists);
+  const tagNames = useStore(store, (s) => s.tagNames);
+  const locations = useStore(store, (s) => s.locations);
+  const allTasks = useStore(store, (s) => s.allTasks);
+
   const [query, setQuery] = useState('');
+  const [name, setName] = useState('');
+  const [conditions, setConditions] = useState<Condition[]>([{ field: 'tag', value: '', not: false }]);
+  const [join, setJoin] = useState<'AND' | 'OR'>('AND');
+  const [saveError, setSaveError] = useState<string | null>(null);
+
+  const ctx = useMemo(
+    () => ({
+      lists: ['Inbox', ...lists.filter((l) => !l.isSystem && !l.isSmart).map((l) => l.name)],
+      tags: tagNames,
+      locations: locations.map((l) => l.name),
+    }),
+    [lists, tagNames, locations],
+  );
+
+  const problem = useMemo(() => (query.trim() ? checkQuery(query) : null), [query]);
+  const matches = useMemo(() => {
+    if (!query.trim() || problem) return [];
+    try {
+      return runQuery(query, allTasks, { lists, locations });
+    } catch {
+      return [];
+    }
+  }, [query, problem, allTasks, lists, locations]);
+
+  function applyBuilder(next: Condition[], nextJoin = join) {
+    setConditions(next);
+    setQuery(buildQuery(next, nextJoin));
+  }
+
+  async function save() {
+    setSaveError(null);
+    if (!name.trim()) return setSaveError('Введите название');
+    if (!query.trim()) return setSaveError('Запрос пустой');
+    if (problem) return setSaveError(problem.message);
+    const list = await createSmartList(name.trim(), query.trim());
+    await refreshData();
+    navigate({ kind: 'smart', listId: list.id });
+  }
+
+  const pos = problem?.position;
 
   return (
-    <div className="smart-list-builder">
-      <div className="smart-list-builder-header">
-        <h2 className="smart-list-builder-title">Умные списки</h2>
-        <p className="smart-list-builder-desc">
-          Создавайте динамические списки задач по фильтрам, тегам и срокам
-        </p>
-      </div>
+    <section className="smart-builder" aria-label="Умный список">
+      <h2 className="smart-builder-title">Новый умный список</h2>
 
-      <div className="smart-list-builder-query-area">
-        <label className="smart-list-builder-label">Запрос фильтрации</label>
+      <label className="smart-builder-label" htmlFor="smart-query">
+        Запрос
+      </label>
+      <div className="smart-builder-query">
         <input
-          type="text"
-          className="smart-list-builder-input"
+          id="smart-query"
+          className={`smart-builder-input${problem ? ' smart-builder-input--error' : ''}`}
           value={query}
-          onChange={(e) => setQuery(e.target.value)}
-          placeholder='Например: priority:1 & due:today & #work'
-          autoComplete="off"
           spellCheck={false}
+          autoComplete="off"
+          aria-invalid={!!problem}
+          aria-describedby="smart-query-status"
+          placeholder='tag:работа AND (priority:1 OR due:today) AND NOT completed:true'
+          onChange={(e) => setQuery(e.target.value)}
         />
-        <div className="smart-list-builder-hint">
-          Используйте: priority:N, due:date, #tag, list:name, completed:yes/no
-        </div>
+        {problem && pos !== undefined && pos >= 0 && (
+          <div className="smart-builder-mark" aria-hidden="true">
+            <span className="smart-builder-mark-ok">{query.slice(0, pos)}</span>
+            <span className="smart-builder-mark-bad">{query.slice(pos, pos + 1) || ' '}</span>
+          </div>
+        )}
       </div>
+      <p id="smart-query-status" className={problem ? 'smart-builder-error' : 'smart-builder-ok'} role={problem ? 'alert' : 'status'}>
+        {problem ? `Ошибка: ${problem.message}` : query.trim() ? `Подходит задач: ${matches.length}` : 'Операторы AND, OR, NOT, скобки; поля — в конструкторе ниже.'}
+      </p>
 
-      <div className="smart-list-builder-preview">
-        <h3 className="smart-list-builder-section-title">Предпросмотр</h3>
-        <div className="smart-list-builder-empty">
-          {query
-            ? 'Результаты фильтрации появятся здесь'
-            : 'Введите запрос для предпросмотра'}
+      <fieldset className="smart-builder-conditions">
+        <legend>Конструктор</legend>
+        <div className="smart-builder-join" role="radiogroup" aria-label="Как объединять условия">
+          {(['AND', 'OR'] as const).map((j) => (
+            <label key={j}>
+              <input type="radio" name="join" checked={join === j} onChange={() => { setJoin(j); applyBuilder(conditions, j); }} />
+              {j === 'AND' ? 'все условия' : 'любое условие'}
+            </label>
+          ))}
         </div>
-      </div>
-
-      <div className="smart-list-builder-actions">
-        <button className="smart-list-builder-save-btn" disabled={!query.trim()}>
-          Сохранить как умный список
+        {conditions.map((c, i) => {
+          const def = FIELDS.find((f) => f.id === c.field)!;
+          const opts = def.options?.(ctx);
+          const update = (patch: Partial<Condition>) => applyBuilder(conditions.map((x, j) => (j === i ? { ...x, ...patch } : x)));
+          return (
+            <div key={i} className="smart-builder-row">
+              <label className="smart-builder-not">
+                <input type="checkbox" checked={c.not} onChange={(e) => update({ not: e.target.checked })} /> не
+              </label>
+              <select aria-label={`Поле условия ${i + 1}`} value={c.field} onChange={(e) => update({ field: e.target.value as FieldId, value: '' })}>
+                {FIELDS.map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.label}
+                  </option>
+                ))}
+              </select>
+              {opts ? (
+                <select aria-label={`Значение условия ${i + 1}`} value={c.value} onChange={(e) => update({ value: e.target.value })}>
+                  <option value="">—</option>
+                  {opts.map((o) => (
+                    <option key={o.value} value={o.value}>
+                      {o.label}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input aria-label={`Значение условия ${i + 1}`} value={c.value} placeholder={def.placeholder} onChange={(e) => update({ value: e.target.value })} />
+              )}
+              <button type="button" className="smart-builder-remove" aria-label={`Убрать условие ${i + 1}`} onClick={() => applyBuilder(conditions.filter((_, j) => j !== i))}>
+                ×
+              </button>
+            </div>
+          );
+        })}
+        <button type="button" className="smart-builder-add" onClick={() => setConditions([...conditions, { field: 'priority', value: '', not: false }])}>
+          + Условие
         </button>
-        <button className="smart-list-builder-cancel-btn">
-          Отмена
-        </button>
-      </div>
+      </fieldset>
 
-      <div className="smart-list-builder-saved">
-        <h3 className="smart-list-builder-section-title">Сохранённые списки</h3>
-        <div className="smart-list-builder-empty">
-          Сохранённые умные списки появятся здесь
+      {matches.length > 0 && (
+        <div className="smart-builder-preview" aria-label="Предпросмотр">
+          <h3>Предпросмотр</h3>
+          <ul>
+            {matches.slice(0, 20).map((t) => (
+              <li key={t.id}>{t.name}</li>
+            ))}
+          </ul>
+          {matches.length > 20 && <p>…и ещё {matches.length - 20}</p>}
         </div>
-      </div>
-    </div>
+      )}
+
+      <form
+        className="smart-builder-save"
+        onSubmit={(e) => {
+          e.preventDefault();
+          void save();
+        }}
+      >
+        <input aria-label="Название умного списка" placeholder="Название" value={name} onChange={(e) => setName(e.target.value)} />
+        <button type="submit" className="smart-builder-save-btn">
+          Сохранить умный список
+        </button>
+        {saveError && <span className="smart-builder-error" role="alert">{saveError}</span>}
+      </form>
+    </section>
   );
 };
 

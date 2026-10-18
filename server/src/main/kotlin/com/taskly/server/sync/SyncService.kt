@@ -6,6 +6,7 @@ import com.taskly.server.db.*
 import com.taskly.server.dto.*
 import com.taskly.server.errors.ForbiddenException
 import com.taskly.server.errors.NotFoundException
+import com.taskly.server.tasks.TaskChildren
 import com.taskly.server.tasks.TaskFields
 import com.taskly.server.tasks.TaskService
 import com.taskly.shared.domain.model.Uuid
@@ -168,6 +169,14 @@ object SyncService {
             "list" -> applyListOp(tx, ownerId, entityId, op)
             "tag" -> applyTagOp(tx, ownerId, entityId, op)
             "location" -> applyLocationOp(tx, ownerId, entityId, op)
+            "note" -> {
+                val (change, version) = TaskChildren.applyNoteOp(tx, ownerId, entityId, op.type, op.fields.orEmpty())
+                Applied(ok(op, entityId, version), listOfNotNull(change))
+            }
+            "attachment" -> {
+                val (change, version) = TaskChildren.applyAttachmentOp(tx, ownerId, entityId, op.type, op.fields.orEmpty())
+                Applied(ok(op, entityId, version), listOfNotNull(change))
+            }
             else -> throw IllegalArgumentException("Unknown entity: ${op.entity}")
         }
     }
@@ -176,7 +185,7 @@ object SyncService {
         val fields = TaskFields.normalize(op.fields)
 
         // SEC-2: validate references before applying the operation
-        validateRefs(tx, ownerId, fields)
+        validateRefs(tx, ownerId, id, fields)
 
         return when (op.type) {
             "create" -> {
@@ -219,6 +228,10 @@ object SyncService {
                 val completedAt = fields["completed_at"]?.let { TaskFields.timestamp(it, "completed_at") } ?: OffsetDateTime.now()
                 val outcome = TaskService.completeInTx(tx, ownerId, id, completedAt)
                 Applied(ok(op, id, outcome.task.get(TasksTable.VERSION)), outcome.changes)
+            }
+            "restore" -> {
+                val change = TaskService.restoreInTx(tx, ownerId, id)
+                Applied(ok(op, id, change?.version), listOfNotNull(change))
             }
             "uncomplete" -> {
                 val change = TaskService.uncompleteInTx(tx, ownerId, id)
@@ -459,19 +472,13 @@ object SyncService {
      * SEC-2: Validates that reference fields in a task operation (parent_id, location_id)
      * point to entities owned by the same user. Throws ForbiddenException for foreign references.
      */
-    private fun validateRefs(tx: DSLContext, ownerId: UUID, fields: Map<String, JsonElement>) {
+    private fun validateRefs(tx: DSLContext, ownerId: UUID, taskId: UUID, fields: Map<String, JsonElement>) {
         // Malformed ids are rejected here too, so no reference check is ever skipped
         fun ref(key: String): UUID? = (fields[key] as? JsonPrimitive)?.contentOrNull?.let {
             try { UUID.fromString(it) } catch (e: IllegalArgumentException) { throw IllegalArgumentException("Invalid UUID in $key: $it") }
         }
-        ref("parent_id")?.let { parentId ->
-            val owned = tx.fetchExists(
-                tx.selectOne().from(TasksTable.TABLE)
-                    .where(TasksTable.ID.eq(parentId))
-                    .and(TasksTable.OWNER_ID.eq(ownerId))
-            )
-            if (!owned) throw ForbiddenException("Reference parent_id=$parentId does not belong to the current scope")
-        }
+        // Same owner, no cycles, at most three levels (SPEC FR-5)
+        ref("parent_id")?.let { parentId -> TaskChildren.validateParent(tx, ownerId, taskId, parentId) }
         ref("location_id")?.let { locationId ->
             val owned = tx.fetchExists(
                 tx.selectOne().from(LocationsTable.TABLE)

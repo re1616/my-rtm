@@ -7,8 +7,13 @@ export default defineConfig({
   testMatch: '**/*.pw.ts',
   timeout: 60_000,
   retries: 0,
-  reporter: [['list'], ['github']],
-  use: { baseURL: 'http://localhost:4173', trace: 'retain-on-failure' },
+  reporter: [['list'], ['github'], ['junit', { outputFile: 'playwright-junit.xml' }]],
+  use: {
+    baseURL: 'http://localhost:4173',
+    trace: 'retain-on-failure',
+    // Local runs may point at a preinstalled Chromium of another revision (CI installs its own)
+    ...(process.env.PW_CHROMIUM_PATH ? { launchOptions: { executablePath: process.env.PW_CHROMIUM_PATH } } : {}),
+  },
   webServer: {
     command: 'npx vite preview --port 4173 --strictPort',
     url: 'http://localhost:4173',

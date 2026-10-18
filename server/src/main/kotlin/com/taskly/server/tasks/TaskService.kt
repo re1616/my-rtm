@@ -2,7 +2,6 @@ package com.taskly.server.tasks
 
 import com.taskly.server.db.Database
 import com.taskly.server.db.ListsTable
-import com.taskly.server.db.NotesTable
 import com.taskly.server.db.TagsTable
 import com.taskly.server.db.TaskTagsTable
 import com.taskly.server.db.TasksTable
@@ -128,14 +127,10 @@ object TaskService {
                 val tagId = findTagByName(tx, ownerId, tagName) ?: continue
                 linkTag(tx, taskId, tagId)
             }
-            parsed?.note?.takeIf { it.isNotBlank() }?.let { note ->
-                tx.insertInto(NotesTable.TABLE)
-                    .set(NotesTable.TASK_ID, taskId)
-                    .set(NotesTable.CONTENT, note)
-                    .execute()
-            }
-
             changes += ChangeLog.append(tx, ownerId, "task", taskId, "create", snapshotPayload(record), record.get(TasksTable.VERSION))
+            parsed?.note?.takeIf { it.isNotBlank() }?.let { note ->
+                changes += TaskChildren.createNote(tx, ownerId, taskId, note)
+            }
             toResponse(record, tagIds(tx, taskId))
         }
         ChangeLog.publish(changes)
@@ -305,8 +300,26 @@ object TaskService {
         val next = createNextInstance(tx, ownerId, completed, completedAt)
         if (next != null) {
             changes += ChangeLog.append(tx, ownerId, "task", next.get(TasksTable.ID), "create", snapshotPayload(next), next.get(TasksTable.VERSION))
+            changes += TaskChildren.copyToNextInstance(tx, ownerId, id, next.get(TasksTable.ID))
         }
         return CompleteOutcome(completed, next, newlyCompleted = true, changes = changes)
+    }
+
+    /** Undo of a deletion (SPEC FR-1 trash, FR-6 undo): clears deleted_at. No-op for live tasks. */
+    fun restoreInTx(tx: DSLContext, ownerId: UUID, id: UUID): ChangeLog.Change? {
+        val existing = lockOwnTask(tx, ownerId, id, includeDeleted = true)
+        if (existing.get(TasksTable.DELETED_AT) == null) return null
+        val newVersion = existing.get(TasksTable.VERSION) + 1
+        val rec = tx.update(TasksTable.TABLE)
+            .set(TasksTable.DELETED_AT, null as OffsetDateTime?)
+            .set(TasksTable.UPDATED_AT, OffsetDateTime.now())
+            .set(TasksTable.FIELD_VERSIONS, bumpFieldVersions(existing, setOf("deleted")))
+            .set(TasksTable.VERSION, newVersion)
+            .where(TasksTable.ID.eq(id))
+            .returning(TasksTable.ALL)
+            .fetchOne()!!
+        // Full field snapshot: a client that already dropped the task can rebuild it
+        return ChangeLog.append(tx, ownerId, "task", id, "restore", snapshotPayload(rec), newVersion)
     }
 
     fun uncompleteInTx(tx: DSLContext, ownerId: UUID, id: UUID): ChangeLog.Change? {
@@ -389,25 +402,11 @@ object TaskService {
             .set(TasksTable.REPEAT_MODE, parent.get(TasksTable.REPEAT_MODE) ?: "every")
             .set(TasksTable.URL, parent.get(TasksTable.URL))
             .set(TasksTable.LOCATION_ID, parent.get(TasksTable.LOCATION_ID))
+            .set(TasksTable.PARENT_ID, parent.get(TasksTable.PARENT_ID))
             .returning(TasksTable.ALL)
             .fetchOne()!!
-        val nextId = next.get(TasksTable.ID)
-        val parentId = parent.get(TasksTable.ID)
 
-        tx.insertInto(TaskTagsTable.TABLE, TaskTagsTable.TASK_ID, TaskTagsTable.TAG_ID)
-            .select(
-                tx.select(DSL.inline(nextId), TaskTagsTable.TAG_ID)
-                    .from(TaskTagsTable.TABLE)
-                    .where(TaskTagsTable.TASK_ID.eq(parentId))
-            )
-            .execute()
-        tx.insertInto(NotesTable.TABLE, NotesTable.TASK_ID, NotesTable.CONTENT)
-            .select(
-                tx.select(DSL.inline(nextId), NotesTable.CONTENT)
-                    .from(NotesTable.TABLE)
-                    .where(NotesTable.TASK_ID.eq(parentId))
-            )
-            .execute()
+        // Tags and notes are copied by the caller (TaskChildren.copyToNextInstance) with change-log entries
         return next
     }
 
@@ -549,6 +548,9 @@ object TaskService {
         put("repeat_mode", rec.get(TasksTable.REPEAT_MODE))
         put("completed_at", rec.get(TasksTable.COMPLETED_AT)?.format(fmt))
         put("url", rec.get(TasksTable.URL))
+        put("parent_id", rec.get(TasksTable.PARENT_ID)?.toString())
+        put("location_id", rec.get(TasksTable.LOCATION_ID)?.toString())
+        put("postponed_count", rec.get(TasksTable.POSTPONED_COUNT))
     }
 
     private fun parseUuid(raw: String): UUID = try {
@@ -570,6 +572,9 @@ object TaskService {
         repeatMode = rec.get(TasksTable.REPEAT_MODE),
         completedAt = rec.get(TasksTable.COMPLETED_AT)?.format(fmt),
         url = rec.get(TasksTable.URL),
+        parentId = rec.get(TasksTable.PARENT_ID)?.toString(),
+        locationId = rec.get(TasksTable.LOCATION_ID)?.toString(),
+        postponedCount = rec.get(TasksTable.POSTPONED_COUNT),
         tags = tags,
         version = rec.get(TasksTable.VERSION),
         createdAt = rec.get(TasksTable.CREATED_AT).format(fmt),

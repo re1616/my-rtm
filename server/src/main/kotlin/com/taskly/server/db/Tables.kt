@@ -100,6 +100,19 @@ object NotesTable {
     val TASK_ID = DSL.field(DSL.name("task_id"), SQLDataType.UUID.nullable(false))
     val CONTENT = DSL.field(DSL.name("content"), SQLDataType.CLOB.nullable(false))
     val VERSION = DSL.field(DSL.name("version"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.inline(1L)))
+    val DELETED_AT = DSL.field(DSL.name("deleted_at"), SQLDataType.TIMESTAMPWITHTIMEZONE)
+    val CREATED_AT = DSL.field(DSL.name("created_at"), SQLDataType.TIMESTAMPWITHTIMEZONE.nullable(false).defaultValue(DSL.function("now", SQLDataType.TIMESTAMPWITHTIMEZONE)))
+    val UPDATED_AT = DSL.field(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE.nullable(false).defaultValue(DSL.function("now", SQLDataType.TIMESTAMPWITHTIMEZONE)))
+}
+
+object AttachmentsTable {
+    val TABLE: Table<Record> = DSL.table(DSL.name("attachments"))
+    val ID = DSL.field(DSL.name("id"), SQLDataType.UUID.nullable(false).defaultValue(DSL.field("gen_random_uuid()", SQLDataType.UUID)))
+    val TASK_ID = DSL.field(DSL.name("task_id"), SQLDataType.UUID.nullable(false))
+    val NAME = DSL.field(DSL.name("name"), SQLDataType.CLOB.nullable(false))
+    val URL = DSL.field(DSL.name("url"), SQLDataType.CLOB.nullable(false))
+    val VERSION = DSL.field(DSL.name("version"), SQLDataType.BIGINT.nullable(false).defaultValue(DSL.inline(1L)))
+    val DELETED_AT = DSL.field(DSL.name("deleted_at"), SQLDataType.TIMESTAMPWITHTIMEZONE)
     val CREATED_AT = DSL.field(DSL.name("created_at"), SQLDataType.TIMESTAMPWITHTIMEZONE.nullable(false).defaultValue(DSL.function("now", SQLDataType.TIMESTAMPWITHTIMEZONE)))
     val UPDATED_AT = DSL.field(DSL.name("updated_at"), SQLDataType.TIMESTAMPWITHTIMEZONE.nullable(false).defaultValue(DSL.function("now", SQLDataType.TIMESTAMPWITHTIMEZONE)))
 }

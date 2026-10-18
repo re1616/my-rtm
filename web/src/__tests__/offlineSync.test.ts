@@ -169,11 +169,34 @@ describe('offline queue (AC-7)', () => {
 });
 
 describe('wire format', () => {
-  it('does not send local system list ids and turns dates into instants', () => {
+  it('does not send local system views, keeps the inbox marker and turns dates into instants', () => {
+    expect(toWireFields({ name: 'x', listId: 'sys-today' })).not.toHaveProperty('listId');
     const wire = toWireFields({ name: 'x', listId: 'sys-inbox', dueDate: '2026-10-20', priority: null });
-    expect(wire).not.toHaveProperty('listId');
+    // "sys-inbox" is replaced with the server inbox id when the op is sent (see below)
+    expect(wire.listId).toBe('sys-inbox');
     expect(wire.priority).toBeNull();
     expect(new Date(wire.dueAt as string).getDate()).toBe(20);
     expect(wire.dueAt).toMatch(/T/);
+  });
+});
+
+describe('moving a task back to Inbox (regression)', () => {
+  it('is sent with the server inbox id; a new inbox task is sent without a list', async () => {
+    const db = getDb();
+    await db.settings.bulkPut([
+      { key: 'syncCursor', value: '1' },
+      { key: 'serverInboxId', value: 'srv-inbox' },
+    ]);
+    const work = '22222222-2222-4222-8222-222222222222';
+    const inInbox = await createTask({ name: 'inbox task' });
+    const moved = await createTask({ name: 'work task', listId: work });
+    await updateTask(moved.id, { listId: 'sys-inbox' });
+
+    expect(await syncNow(deps())).toBe('idle');
+    const sent = server.received;
+    expect(sent.find((o) => o.entityId === inInbox.id && o.type === 'create')?.fields.listId).toBe('srv-inbox');
+    expect(sent.find((o) => o.entityId === moved.id && o.type === 'create')?.fields.listId).toBe(work);
+    const move = sent.find((o) => o.entityId === moved.id && o.type !== 'create');
+    expect(move).toMatchObject({ type: 'move', fields: { listId: 'srv-inbox' } });
   });
 });

@@ -1,99 +1,37 @@
-// Taskly Web — Mass Operations Bar (scaffold)
-// Shown when tasks are selected: complete, delete, move, tag, priority bulk actions
+// Taskly Web — actions on the selected tasks (SPEC FR-4): complete, postpone, priority, due,
+// list, tags, delete. Replaces the sort bar while something is selected; every action can be
+// undone for 10 s.
 import React from 'react';
+import { useStore } from 'zustand';
+import store from '../../store/taskStore';
+import { completeTargets, deleteTargets, postponeTargets, setPriorityTargets } from '../tasks/actions';
 
-interface MassOperationsBarProps {
-  selectedCount: number;
-  onComplete: () => void;
-  onDelete: () => void;
-  onMove: () => void;
-  onSetPriority: (priority: number) => void;
-  onAddTag: (tag: string) => void;
-  onClearSelection: () => void;
-}
-
-const MassOperationsBar: React.FC<MassOperationsBarProps> = ({
-  selectedCount,
-  onComplete,
-  onDelete,
-  onMove,
-  onSetPriority,
-  onAddTag,
-  onClearSelection,
-}) => {
-  if (selectedCount === 0) return null;
+const MassOperationsBar: React.FC = () => {
+  const count = useStore(store, (s) => s.selectedTaskIds.length);
+  if (count === 0) return null;
+  const open = (d: Parameters<ReturnType<typeof store.getState>['setDialog']>[0]) => store.getState().setDialog(d);
 
   return (
-    <div className="massops-bar">
-      <div className="massops-bar-info">
-        <span className="massops-bar-count">
-          Выбрано: <strong>{selectedCount}</strong>
-        </span>
-      </div>
-
-      <div className="massops-bar-actions">
-        <button
-          className="massops-btn massops-btn--complete"
-          onClick={onComplete}
-          title="Завершить выбранные"
-        >
-          ✅ Завершить
-        </button>
-
-        <button
-          className="massops-btn massops-btn--delete"
-          onClick={onDelete}
-          title="Удалить выбранные"
-        >
-          🗑 Удалить
-        </button>
-
-        <button
-          className="massops-btn massops-btn--move"
-          onClick={onMove}
-          title="Переместить в список"
-        >
-          📂 Переместить
-        </button>
-
-        <div className="massops-btn-group">
-          <span className="massops-btn-group-label">Приоритет:</span>
-          <button
-            className="massops-btn massops-btn--priority"
-            onClick={() => onSetPriority(1)}
-          >
-            !1
+    <div className="massops-bar" role="toolbar" aria-label="Действия с выбранными задачами">
+      <span className="massops-bar-count" aria-live="polite">
+        Выбрано: <strong>{count}</strong>
+      </span>
+      <button className="massops-btn" onClick={() => void completeTargets()} title="C">Выполнить</button>
+      <button className="massops-btn" onClick={() => void postponeTargets()} title="P">Отложить</button>
+      <span className="massops-group" role="group" aria-label="Приоритет">
+        {([1, 2, 3] as const).map((p) => (
+          <button key={p} className={`massops-btn massops-btn--p${p}`} onClick={() => void setPriorityTargets(p)} title={String(p)} aria-label={`Приоритет ${p}`}>
+            !{p}
           </button>
-          <button
-            className="massops-btn massops-btn--priority"
-            onClick={() => onSetPriority(2)}
-          >
-            !2
-          </button>
-          <button
-            className="massops-btn massops-btn--priority"
-            onClick={() => onSetPriority(3)}
-          >
-            !3
-          </button>
-        </div>
-
-        <button
-          className="massops-btn massops-btn--tag"
-          onClick={() => onAddTag('')}
-          title="Добавить тег"
-        >
-          🏷 Тег
-        </button>
-      </div>
-
-      <button
-        className="massops-bar-close"
-        onClick={onClearSelection}
-        title="Снять выделение"
-      >
-        &times;
-      </button>
+        ))}
+        <button className="massops-btn" onClick={() => void setPriorityTargets(null)} title="4" aria-label="Без приоритета">—</button>
+      </span>
+      <button className="massops-btn" onClick={() => open('due')} title="D">Срок</button>
+      <button className="massops-btn" onClick={() => open('move')} title="M">В список</button>
+      <button className="massops-btn" onClick={() => open('tags')} title="S">+ Теги</button>
+      <button className="massops-btn" onClick={() => open('untag')}>− Теги</button>
+      <button className="massops-btn massops-btn--danger" onClick={() => void deleteTargets()} title="Delete">Удалить</button>
+      <button className="massops-bar-close" onClick={() => store.getState().clearSelection()} aria-label="Снять выделение (N)">×</button>
     </div>
   );
 };

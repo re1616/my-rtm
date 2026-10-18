@@ -1,5 +1,6 @@
 // Taskly Web — Onboarding Flow (scaffold)
 // 3-step onboarding + Smart Add cheat sheet
+import store from '../../store/taskStore';
 import React, { useState } from 'react';
 
 const STEPS = [
@@ -50,11 +51,7 @@ const OnboardingFlow: React.FC = () => {
 
   function handleFinish() {
     // In production: mark onboarding as completed, navigate to inbox
-    window.dispatchEvent(
-      new CustomEvent('taskly-navigate', {
-        detail: { kind: 'system', view: 'inbox' },
-      }),
-    );
+    store.getState().setCurrentView({ kind: 'system', view: 'inbox' });
   }
 
   if (showCheatSheet) {

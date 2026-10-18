@@ -22,12 +22,42 @@ export interface Task {
   completedAt?: string;
   postponedCount: number;
   tags: string[];
+  /** @deprecated legacy single note (before v6); notes live in the `notes` table now. */
   notes?: string;
   parentId?: string;
+  locationId?: string;
   deletedAt?: string;
   version: number;
   createdAt: string;
   updatedAt: string;
+}
+
+// ── Note (markdown, several per task) ──
+export interface TaskNote {
+  id: string;
+  taskId: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// ── Attachment (link to an external file) ──
+export interface TaskAttachment {
+  id: string;
+  taskId: string;
+  name: string;
+  url: string;
+  createdAt: string;
+}
+
+/** One entry of the task card history (server change log). */
+export interface TaskHistoryEntry {
+  seq: number;
+  entity: string;
+  entityId: string;
+  op: string;
+  payload: string;
+  ts: string;
 }
 
 // ── List ──
@@ -97,9 +127,10 @@ export type SyncOpType =
   | 'uncomplete'
   | 'move'
   | 'tag_add'
-  | 'tag_remove';
+  | 'tag_remove'
+  | 'restore';
 
-export type SyncEntity = 'task' | 'list' | 'tag' | 'location';
+export type SyncEntity = 'task' | 'list' | 'tag' | 'location' | 'note' | 'attachment';
 
 export interface SyncOperation {
   opId: string;
@@ -141,13 +172,16 @@ export interface TaskLocation {
 }
 
 // ── System view types ──
-export type SystemView = 'inbox' | 'today' | 'overdue' | 'week' | 'all' | 'completed';
+export type SystemView = 'inbox' | 'today' | 'tomorrow' | 'overdue' | 'week' | 'all' | 'completed';
 
 // ── App View ──
 export type AppView =
   | { kind: 'system'; view: SystemView }
   | { kind: 'list'; listId: string }
   | { kind: 'smart'; listId: string }
+  | { kind: 'tag'; tag: string }
+  | { kind: 'location'; locationId: string }
+  | { kind: 'search'; query: string }
   | { kind: 'task-detail'; taskId: string }
   | { kind: 'settings' }
   | { kind: 'onboarding' }
