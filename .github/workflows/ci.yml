@@ -52,9 +52,30 @@ jobs:
       - name: Server tests (unit + integration on PG/Redis)
         shell: bash
         run: ./gradlew :server:test :server:integrationTest --console=plain --continue 2>&1 | tee gradle-server.log; exit ${PIPESTATUS[0]}
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Start server for the web E2E test (AC-7)
+        shell: bash
+        run: |
+          nohup ./gradlew :server:run --console=plain > server-run.log 2>&1 &
+          for i in $(seq 1 120); do
+            curl -sf http://localhost:8080/health && exit 0
+            sleep 2
+          done
+          echo "server did not start"; tail -50 server-run.log; exit 1
+      - name: Web E2E — offline queue against the real server
+        working-directory: web
+        env:
+          TASKLY_E2E_URL: http://localhost:8080
+        run: |
+          npm ci
+          npx vitest run src/__tests__/offlineSync.e2e.test.ts --reporter=default --reporter=github-actions
       - name: Report failures as annotations
         if: failure()
-        run: python3 .github/scripts/report_failures.py gradle-shared.log gradle-server.log
+        run: python3 .github/scripts/report_failures.py gradle-shared.log gradle-server.log server-run.log
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4
@@ -81,7 +102,7 @@ jobs:
         run: npm ci
       - name: Test
         working-directory: web
-        run: npm test
+        run: npx vitest run --reporter=default --reporter=github-actions
       - name: Build
         working-directory: web
         run: npm run build

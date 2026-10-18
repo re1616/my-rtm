@@ -23,6 +23,10 @@ for path in logs:
     compile_errors = [l for l in lines if l.startswith("e: ")]
     if compile_errors:
         annotate(f"Kotlin compile errors ({path})", "\n".join(compile_errors[:80]))
+    if path.endswith("server-run.log"):
+        errs = [l for l in lines if any(k in l for k in ("Exception", "ERROR", "Caused by", "\tat com.taskly"))]
+        if errs:
+            annotate("Server runtime errors", "\n".join(errs[:120]))
     if "FAILURE:" in text:
         idx = text.index("FAILURE:")
         annotate(f"Gradle failure ({path})", text[idx:idx + 4000])
@@ -33,6 +37,14 @@ for xml_path in glob.glob("**/build/test-results/**/*.xml", recursive=True):
         root = ET.parse(xml_path).getroot()
     except ET.ParseError:
         continue
+    has_failures = any(c.find("failure") is not None or c.find("error") is not None for c in root.iter("testcase"))
+    if has_failures:
+        # Server-side stack traces end up in the suite's stdout/stderr, not in the assertion
+        out = "\n".join((n.text or "") for n in root.iter() if n.tag in ("system-out", "system-err"))
+        keep = [l for l in out.splitlines()
+                if any(k in l for k in ("Exception", "ERROR", "Caused by", "SQL", "\tat com.taskly"))]
+        if keep:
+            annotate(f"Server log ({root.get('name')})", "\n".join(keep[:120]))
     for case in root.iter("testcase"):
         for tag in ("failure", "error"):
             node = case.find(tag)

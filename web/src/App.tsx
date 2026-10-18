@@ -1,10 +1,13 @@
 // Taskly Web — Main Application Shell
 import React, { useState, useEffect } from 'react';
+import { useStore } from 'zustand';
 import Sidebar from './features/sidebar/Sidebar';
 import TaskList from './features/tasks/TaskList';
 import store from './store/taskStore';
 import { initializeDb } from './db/database';
 import { getTasksByList, getLists } from './entities/taskRepository';
+import { getSession } from './api/client';
+import { startSyncService, stopSyncService } from './features/sync/SyncService';
 import type { AppView } from './types';
 
 function getListIdForView(view: AppView): string {
@@ -15,8 +18,9 @@ function getListIdForView(view: AppView): string {
 }
 
 const App: React.FC = () => {
-  const [tasks, setTasks] = useState(store.getState().tasks);
-  const [lists, setLists] = useState(store.getState().lists);
+  // Subscribe to the store so repository refreshes (store.setTasks) re-render the list
+  const tasks = useStore(store, (s) => s.tasks);
+  const setTasks = store.getState().setTasks;
   const [view, setView] = useState(store.getState().currentView);
   const [isOnline, setIsOnline] = useState(store.getState().isOnline);
   const [isInitialized, setIsInitialized] = useState(false);
@@ -32,11 +36,18 @@ const App: React.FC = () => {
 
       store.getState().setLists(allLists);
       store.getState().setTasks(allTasks);
-      setLists(allLists);
-      setTasks(allTasks);
+      store.getState().setSession(await getSession());
       setIsInitialized(true);
+
+      // Background sync: pushes the offline queue, pulls server changes, retries on reconnect
+      startSyncService(async (state) => {
+        store.getState().setSyncState(state);
+        const current = getListIdForView(store.getState().currentView);
+        store.getState().setTasks(await getTasksByList(current, { showCompleted: store.getState().showCompleted }));
+      });
     }
     init();
+    return () => stopSyncService();
   }, []);
 
   // Listen for navigation events

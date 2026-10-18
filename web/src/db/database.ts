@@ -7,7 +7,7 @@ export class TasklyDB extends Dexie {
   lists!: EntityTable<TaskList, 'id'>;
   tags!: EntityTable<TaskTag, 'id'>;
   syncQueue!: EntityTable<SyncOperation, 'opId'>;
-  settings!: Table<{ key: string; value: string }, 'key'>;
+  settings!: Table<{ key: string; value: string }, string>;
 
   constructor() {
     super('taskly');
@@ -19,6 +19,19 @@ export class TasklyDB extends Dexie {
       syncQueue: 'opId, entityId, status, clientTs',
       settings: 'key',
     });
+    // v4: ordered sync queue (seq). Ops queued by older builds were never sent; keep them in order.
+    this.version(4)
+      .stores({ syncQueue: 'opId, seq, entityId, status, clientTs' })
+      .upgrade(async (tx) => {
+        let i = 0;
+        await tx
+          .table('syncQueue')
+          .toCollection()
+          .modify((op: Record<string, unknown>) => {
+            op.seq = Date.parse(String(op.clientTs ?? '')) * 1000 + i++ || i;
+            if (op.status === 'sent' || op.status === 'sending') op.status = 'pending';
+          });
+      });
   }
 }
 
@@ -34,14 +47,12 @@ export function getDb(): TasklyDB {
 export async function initializeDb(): Promise<void> {
   const db = getDb();
 
-  // Seed system lists if not present
-  // Dexie 4 uses IndexableType for where conditions; use '1' as truthy marker
-  const existingCount = await db.lists
-    .where('isSystem')
-    .equals('1')
-    .count();
+  // Seed system lists if not present. (Booleans are not indexable in IndexedDB, so the old
+  // `where('isSystem').equals('1')` check always returned 0 and the second start crashed
+  // on a duplicate-key bulkAdd.)
+  const existing = await db.lists.get('sys-inbox');
 
-  if (existingCount === 0) {
+  if (!existing) {
     const now = new Date().toISOString();
     const systemLists: TaskList[] = [
       {
@@ -99,6 +110,6 @@ export async function initializeDb(): Promise<void> {
         updatedAt: now,
       },
     ];
-    await db.lists.bulkAdd(systemLists);
+    await db.lists.bulkPut(systemLists);
   }
 }

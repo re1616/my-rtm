@@ -1,6 +1,7 @@
 // Taskly Web — Zustand Store
-import { create, useStore } from 'zustand';
-import type { Task, TaskList, AppView, SortField, UIState } from '../types';
+import { create } from 'zustand';
+import type { Task, TaskList, AppView, SortField, Session } from '../types';
+import type { SyncState } from '../features/sync/SyncService';
 
 interface AppStore {
   // State
@@ -13,6 +14,8 @@ interface AppStore {
   showCompleted: boolean;
   sortBy: SortField;
   sortAsc: boolean;
+  syncState: SyncState;
+  session: Session | null;
 
   // Actions
   setTasks: (tasks: Task[]) => void;
@@ -26,6 +29,8 @@ interface AppStore {
   setShowCompleted: (show: boolean) => void;
   setSortBy: (field: SortField) => void;
   toggleSortAsc: () => void;
+  setSyncState: (s: SyncState) => void;
+  setSession: (s: Session | null) => void;
 }
 
 // Create a Zustand store
@@ -39,6 +44,8 @@ const store = create<AppStore>()((set) => ({
   showCompleted: false,
   sortBy: 'createdAt',
   sortAsc: false,
+  syncState: 'idle',
+  session: null,
 
   setTasks: (tasks) => set({ tasks }),
   setLists: (lists) => set({ lists }),
@@ -61,6 +68,8 @@ const store = create<AppStore>()((set) => ({
   setSortBy: (field) => set({ sortBy: field }),
   toggleSortAsc: () =>
     set((state) => ({ sortAsc: !state.sortAsc })),
+  setSyncState: (syncState) => set({ syncState }),
+  setSession: (session) => set({ session }),
 }));
 
 export default store;

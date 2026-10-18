@@ -7,11 +7,12 @@ import {
   getTasksByList,
   createTask,
   completeTask,
+  uncompleteTask,
   softDeleteTask,
+  findListByName,
 } from '../../entities/taskRepository';
-import { parseSmartAdd } from '../smartadd/parser';
+import { triggerSync } from '../sync/SyncService';
 import store from '../../store/taskStore';
-import { getDb } from '../../db/database';
 
 interface TaskListProps {
   view: AppView;
@@ -19,19 +20,7 @@ interface TaskListProps {
   isOnline: boolean;
 }
 
-async function handleSmartAdd(result: SmartAddResult): Promise<void> {
-  const task = await createTask({
-    name: result.name,
-    priority: result.priority as 1 | 2 | 3 | null,
-    dueDate: result.dueDate,
-    tags: result.tags,
-    repeatRule: result.repeatRule,
-    repeatMode: result.repeatMode,
-    estimateMin: result.estimateMin,
-    note: result.note,
-  });
-
-  // Refresh task list
+async function refreshCurrentView(): Promise<void> {
   const storeState = store.getState();
   const refreshed = await getTasksByList(
     storeState.currentView.kind === 'system'
@@ -44,6 +33,28 @@ async function handleSmartAdd(result: SmartAddResult): Promise<void> {
     },
   );
   store.getState().setTasks(refreshed);
+}
+
+async function handleSmartAdd(result: SmartAddResult): Promise<void> {
+  // "#Name" resolves to an existing list (the parser gives lists priority over tags);
+  // otherwise the task goes to the list that is currently open, or the Inbox.
+  const view = store.getState().currentView;
+  const namedList = result.listName ? await findListByName(result.listName) : null;
+  const listId = namedList?.id ?? (view.kind === 'list' ? view.listId : undefined);
+  await createTask({
+    name: result.name,
+    listId,
+    dueHasTime: result.dueHasTime,
+    priority: result.priority as 1 | 2 | 3 | null,
+    dueDate: result.dueDate,
+    tags: result.tags,
+    repeatRule: result.repeatRule,
+    repeatMode: result.repeatMode,
+    estimateMin: result.estimateMin,
+    note: result.note,
+  });
+  await refreshCurrentView();
+  void triggerSync();
 }
 
 const TaskList: React.FC<TaskListProps> = ({ view, tasks, isOnline }) => {
@@ -91,37 +102,17 @@ const TaskList: React.FC<TaskListProps> = ({ view, tasks, isOnline }) => {
               onToggleSelect={(id) => store.getState().toggleTaskSelection(id)}
               onComplete={async (id) => {
                 if (task.completedAt) {
-                  await completeTask(id);
+                  await uncompleteTask(id);
                 } else {
                   await completeTask(id);
                 }
-                const storeState = store.getState();
-                const refreshed = await getTasksByList(
-                  storeState.currentView.kind === 'system'
-                    ? `sys-${storeState.currentView.view}`
-                    : storeState.currentView.listId,
-                  {
-                    showCompleted: storeState.showCompleted,
-                    sortBy: storeState.sortBy,
-                    sortAsc: storeState.sortAsc,
-                  },
-                );
-                store.getState().setTasks(refreshed);
+                await refreshCurrentView();
+                void triggerSync();
               }}
               onDelete={async (id) => {
                 await softDeleteTask(id);
-                const storeState = store.getState();
-                const refreshed = await getTasksByList(
-                  storeState.currentView.kind === 'system'
-                    ? `sys-${storeState.currentView.view}`
-                    : storeState.currentView.listId,
-                  {
-                    showCompleted: storeState.showCompleted,
-                    sortBy: storeState.sortBy,
-                    sortAsc: storeState.sortAsc,
-                  },
-                );
-                store.getState().setTasks(refreshed);
+                await refreshCurrentView();
+                void triggerSync();
               }}
             />
           ))}

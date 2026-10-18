@@ -75,6 +75,7 @@ export interface SmartAddResult {
   name: string;
   tokens: SmartAddToken[];
   dueDate?: string;
+  dueHasTime?: boolean;
   startDate?: string;
   priority?: number;
   listName?: string;
@@ -99,15 +100,29 @@ export type SyncOpType =
 
 export interface SyncOperation {
   opId: string;
+  /** Monotonic queue position: ops are sent strictly in this order. */
+  seq: number;
+  /** Filled in at send time from the session (`user:<id>`); empty while queued offline. */
   scope: string;
-  entity: string;
+  entity: 'task' | 'list' | 'tag';
   entityId: string;
   type: SyncOpType;
+  /** Changed fields only, in the server's wire format (camelCase, null = clear). */
   fields: Record<string, unknown>;
-  baseVersion: number;
+  baseVersion?: number;
   clientTs: string;
-  status: 'pending' | 'sending' | 'sent' | 'failed';
+  /** pending → sending → (removed when the server acknowledged it) | failed (rejected, retried later). */
+  status: 'pending' | 'sending' | 'failed';
   retryCount: number;
+  lastError?: string;
+}
+
+/** Authenticated server session stored locally. */
+export interface Session {
+  userId: string;
+  accessToken: string;
+  refreshToken: string;
+  email?: string;
 }
 
 // ── System view types ──

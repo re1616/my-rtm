@@ -12,6 +12,13 @@ export default defineConfig({
       },
     }),
   ],
+  server: {
+    // Dev: talk to a local `./gradlew :server:run` without CORS
+    proxy: {
+      '/v1': { target: 'http://localhost:8080', ws: true },
+      '/health': 'http://localhost:8080',
+    },
+  },
   resolve: {
     alias: {
       '@': '/src',
