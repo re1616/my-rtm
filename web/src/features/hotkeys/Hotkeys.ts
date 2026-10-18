@@ -1,6 +1,5 @@
-// Taskly Web — Keyboard Shortcuts (full implementation)
-// All hotkeys from SPEC 4.3: T C P 1-4 D S R F M J/K I A/N / Ctrl+Z Delete ?
-import store from '../../store/taskStore';
+// Taskly Web — Keyboard Shortcuts (scaffold)
+// Defines app-wide keyboard shortcuts and provides setup/teardown
 
 export interface HotkeyBinding {
   key: string;
@@ -13,49 +12,10 @@ export interface HotkeyBinding {
 }
 
 const DEFAULT_BINDINGS: HotkeyBinding[] = [
-  // ── Navigation ──
-  {
-    key: 'i',
-    description: 'Входящие',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'navigate', view: { kind: 'system', view: 'inbox' } } }),
-      );
-    },
-  },
-  {
-    key: 't',
-    description: 'Сегодня (Today)',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'navigate', view: { kind: 'system', view: 'today' } } }),
-      );
-    },
-  },
-  {
-    key: 'c',
-    description: 'Выполненные (Completed)',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'navigate', view: { kind: 'system', view: 'completed' } } }),
-      );
-    },
-  },
-  {
-    key: 's',
-    description: 'Умные списки (Smart lists)',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-navigate', { detail: { kind: 'smart-lists' } }),
-      );
-    },
-  },
-
-  // ── Task creation ──
   {
     key: 'n',
     ctrl: true,
-    description: 'Новая задача (Ctrl+N)',
+    description: 'Новая задача',
     handler: () => {
       // Focus the Smart Add input
       const input = document.querySelector<HTMLInputElement>('.smartadd-input');
@@ -66,147 +26,27 @@ const DEFAULT_BINDINGS: HotkeyBinding[] = [
     },
   },
   {
-    key: 'a',
-    ctrl: true,
-    description: 'Выбрать все',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'select-all' } }),
-      );
-    },
-  },
-  {
     key: 'Escape',
     description: 'Закрыть / Отмена',
     handler: () => {
+      // Close detail panel, clear selection
       window.dispatchEvent(
         new CustomEvent('taskly-hotkey', { detail: { action: 'close' } }),
       );
+      // Blur any focused input
       if (document.activeElement instanceof HTMLElement) {
         document.activeElement.blur();
       }
     },
   },
-
-  // ── Priority ──
   {
-    key: '1',
-    description: 'Приоритет !1',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'set-priority', priority: 1 } }),
-      );
-    },
-  },
-  {
-    key: '2',
-    description: 'Приоритет !2',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'set-priority', priority: 2 } }),
-      );
-    },
-  },
-  {
-    key: '3',
-    description: 'Приоритет !3',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'set-priority', priority: 3 } }),
-      );
-    },
-  },
-  {
-    key: '4',
-    description: 'Без приоритета',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'set-priority', priority: null } }),
-      );
-    },
-  },
-
-  // ── Other actions ──
-  {
-    key: 'd',
-    description: 'Срок (Due) — фокус на дату',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'focus-due' } }),
-      );
-    },
-  },
-  {
-    key: 'r',
-    description: 'Повтор (Repeat)',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'repeat' } }),
-      );
-    },
-  },
-  {
-    key: 'f',
-    description: 'Фильтр / Поиск',
-    handler: () => {
-      const input = document.querySelector<HTMLInputElement>('.smart-list-builder-input, .task-list-header input[type=text]');
-      if (input) {
-        input.focus();
-        input.select();
-      } else {
-        window.dispatchEvent(
-          new CustomEvent('taskly-hotkey', { detail: { action: 'search' } }),
-        );
-      }
-    },
-  },
-  {
-    key: 'm',
-    description: 'Переместить (Move)',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'move' } }),
-      );
-    },
-  },
-  {
-    key: '/',
-    description: 'Поиск (/)',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'search' } }),
-      );
-    },
-  },
-
-  // ── Navigation J/K ──
-  {
-    key: 'j',
-    description: 'Следующая задача (Next)',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'navigate-task', direction: 'next' } }),
-      );
-    },
-  },
-  {
-    key: 'k',
-    description: 'Предыдущая задача (Prev)',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'navigate-task', direction: 'prev' } }),
-      );
-    },
-  },
-
-  // ── Undo / Delete ──
-  {
-    key: 'z',
+    key: 'a',
     ctrl: true,
-    description: 'Отмена (Undo)',
+    description: 'Выбрать все',
     handler: () => {
+      // In production: select all visible tasks
       window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'undo' } }),
+        new CustomEvent('taskly-hotkey', { detail: { action: 'select-all' } }),
       );
     },
   },
@@ -219,11 +59,31 @@ const DEFAULT_BINDINGS: HotkeyBinding[] = [
       );
     },
   },
-
-  // ── Help ──
+  {
+    key: '/',
+    ctrl: true,
+    description: 'Поиск',
+    handler: () => {
+      // Focus search / filter
+      window.dispatchEvent(
+        new CustomEvent('taskly-hotkey', { detail: { action: 'search' } }),
+      );
+    },
+  },
+  {
+    key: 's',
+    ctrl: true,
+    description: 'Фокус на Smart Add',
+    handler: () => {
+      const input = document.querySelector<HTMLInputElement>('.smartadd-input');
+      if (input) {
+        input.focus();
+        input.select();
+      }
+    },
+  },
   {
     key: '?',
-    shift: true,
     description: 'Показать шорткаты',
     handler: () => {
       window.dispatchEvent(
