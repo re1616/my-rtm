@@ -187,6 +187,10 @@ jobs:
           node-version: "22"
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - name: Install DB extensions (normally done by a superuser, see V1 migration)
+        run: psql -h localhost -U taskly -d taskly_test -c "CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+        env:
+          PGPASSWORD: taskly
       - name: Build shared KMP module
         shell: bash
         run: ./gradlew :shared:webLibrary --console=plain 2>&1 | tee gradle-web.log; exit ${PIPESTATUS[0]}
