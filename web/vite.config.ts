@@ -1,6 +1,12 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import { VitePWA } from 'vite-plugin-pwa';
+import { fileURLToPath } from 'node:url';
+
+// Kotlin/JS build of the shared module (./gradlew :shared:webLibrary)
+export const sharedKmp = fileURLToPath(
+  new URL('../shared/build/dist/js/productionLibrary/taskly-shared.mjs', import.meta.url),
+);
 
 export default defineConfig({
   plugins: [
@@ -22,6 +28,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': '/src',
+      '@taskly/shared': sharedKmp,
     },
   },
 });

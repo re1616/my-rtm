@@ -31,6 +31,7 @@ import org.jooq.DSLContext
 import org.jooq.JSONB
 import org.jooq.Record
 import org.jooq.impl.DSL
+import org.jooq.impl.SQLDataType
 import org.slf4j.LoggerFactory
 import java.time.Instant
 import java.time.OffsetDateTime
@@ -426,14 +427,19 @@ object TaskService {
             throw IllegalArgumentException("Invalid query: ${e.message}")
         }
         val (sql, params) = SqlRenderer.render(pred, alias = "tasks")
-        val bindings = params.map {
+        // Typed binds: a plain `?` + OffsetDateTime is sent as varchar, which Postgres cannot
+        // compare with timestamptz. Each `?` becomes a {n} placeholder for a typed value.
+        val parts: List<org.jooq.QueryPart> = params.map {
             when (it) {
-                is Param.Str -> it.value
-                is Param.Num -> it.value
-                is Param.Ts -> Instant.parse(it.value).atOffset(ZoneOffset.UTC)
+                is Param.Str -> DSL.`val`(it.value, SQLDataType.CLOB)
+                is Param.Num -> DSL.`val`(it.value, SQLDataType.BIGINT)
+                is Param.Ts -> DSL.`val`(Instant.parse(it.value).atOffset(ZoneOffset.UTC), SQLDataType.TIMESTAMPWITHTIMEZONE)
             }
         }
-        return DSL.condition(sql, *bindings.toTypedArray())
+        var index = 0
+        val template = Regex("\\?").replace(sql) { "{${index++}}" }
+        check(index == parts.size) { "Placeholder count mismatch: $index vs ${parts.size}" }
+        return DSL.condition(template, *parts.toTypedArray())
     }
 
     fun userTz(tx: DSLContext, ownerId: UUID): String =

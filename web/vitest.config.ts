@@ -1,6 +1,12 @@
 import { defineConfig } from 'vitest/config';
+import { sharedKmp } from './vite.config';
 
 export default defineConfig({
+  resolve: {
+    alias: {
+      '@taskly/shared': sharedKmp,
+    },
+  },
   test: {
     globals: true,
     environment: 'jsdom',

@@ -2,6 +2,12 @@
 // Token highlighting via chip preview below the input
 import React, { useState, useEffect } from 'react';
 import { parseSmartAdd } from './parser';
+import store from '../../store/taskStore';
+
+function parseWithContext(text: string): SmartAddResult {
+  const lists = store.getState().lists.filter((l) => !l.isSystem).map((l) => l.name);
+  return parseSmartAdd(text, { listNames: lists });
+}
 import type { SmartAddResult } from '../../types';
 
 interface SmartAddProps {
@@ -16,7 +22,7 @@ const SmartAddInput: React.FC<SmartAddProps> = ({ onSubmit, placeholder }) => {
 
   useEffect(() => {
     if (input.trim()) {
-      setParsed(parseSmartAdd(input));
+      setParsed(parseWithContext(input));
     } else {
       setParsed(null);
     }
@@ -25,7 +31,7 @@ const SmartAddInput: React.FC<SmartAddProps> = ({ onSubmit, placeholder }) => {
   function handleSubmit() {
     const trimmed = input.trim();
     if (!trimmed) return;
-    const result = parsed || parseSmartAdd(trimmed);
+    const result = parsed || parseWithContext(trimmed);
     if (!result.name && result.tokens.length === 0) return;
     onSubmit(result);
     setInput('');

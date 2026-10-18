@@ -1,0 +1,109 @@
+@file:OptIn(ExperimentalJsExport::class)
+
+package com.taskly.shared.js
+
+import com.taskly.shared.query.QueryParser
+import com.taskly.shared.smartadd.SmartAddParser
+import kotlinx.datetime.LocalDate
+import kotlinx.datetime.TimeZone
+import kotlinx.datetime.toLocalDateTime
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.json.Json
+
+/**
+ * JS entry points of the shared module for the web client (ARCH 3.1: one domain logic for
+ * server, Android and web). Results cross the boundary as JSON strings so the API stays
+ * independent of Kotlin types (LocalDate, Instant, enums) that are not exportable to JS.
+ */
+
+private val webJson = Json {
+    encodeDefaults = true
+    explicitNulls = false
+}
+
+@Serializable
+internal data class WebToken(val type: String, val start: Int, val end: Int, val value: String)
+
+@Serializable
+internal data class WebSmartAdd(
+    val name: String,
+    val tokens: List<WebToken>,
+    /** ISO-8601 instant of the due date (local midnight when no time was given). */
+    val dueInstant: String? = null,
+    /** yyyy-MM-dd in the parse time zone. */
+    val dueDate: String? = null,
+    val dueHasTime: Boolean = false,
+    val startInstant: String? = null,
+    val startDate: String? = null,
+    val priority: Int? = null,
+    val listName: String? = null,
+    val tags: List<String> = emptyList(),
+    val rrule: String? = null,
+    val repeatMode: String? = null,
+    val location: String? = null,
+    val estimateMin: Int? = null,
+    val contact: String? = null,
+    val note: String? = null,
+)
+
+/**
+ * Resolves the time zone: IANA name when the runtime supports it, otherwise the fixed
+ * UTC offset the browser reports (e.g. "UTC+03:00").
+ */
+private fun zone(timeZone: String, fallbackOffset: String): TimeZone =
+    runCatching { TimeZone.of(timeZone) }.getOrNull()
+        ?: runCatching { TimeZone.of(fallbackOffset) }.getOrNull()
+        ?: TimeZone.UTC
+
+/**
+ * Smart Add (SPEC F-2) for the web: the same parser the server and Android use.
+ * @param today yyyy-MM-dd in the user's zone (pinned for determinism and tests)
+ * @return JSON of [WebSmartAdd]
+ */
+@JsExport
+fun parseSmartAdd(
+    input: String,
+    today: String,
+    timeZone: String,
+    fallbackOffset: String,
+    listNames: Array<String>,
+    tagNames: Array<String>,
+): String {
+    val tz = zone(timeZone, fallbackOffset)
+    val r = SmartAddParser().parse(input, LocalDate.parse(today), tz, listNames.toSet(), tagNames.toSet())
+    val dto = WebSmartAdd(
+        name = r.name,
+        tokens = r.tokens.map { WebToken(it.type.name.lowercase(), it.start, it.end, it.value) },
+        dueInstant = r.due?.instant?.toString(),
+        dueDate = r.due?.date?.toString(),
+        dueHasTime = r.due?.hasTime ?: false,
+        startInstant = r.start?.instant?.toString(),
+        startDate = r.start?.date?.toString(),
+        priority = r.priority?.level,
+        listName = r.listName,
+        tags = r.tags,
+        rrule = r.repeat?.rrule,
+        repeatMode = r.repeat?.mode?.name?.lowercase(),
+        location = r.location,
+        estimateMin = r.estimateMin,
+        contact = r.contact,
+        note = r.note,
+    )
+    return webJson.encodeToString(WebSmartAdd.serializer(), dto)
+}
+
+/** Validates a smart-list query; returns null when valid, otherwise the parser's message. */
+@JsExport
+fun validateQuery(query: String): String? =
+    try {
+        QueryParser.parse(query)
+        null
+    } catch (e: Exception) {
+        e.message ?: "Invalid query"
+    }
+
+/** Today's date (yyyy-MM-dd) in the given zone — helper for callers without a date library. */
+@JsExport
+fun todayIn(epochMillis: Double, timeZone: String, fallbackOffset: String): String =
+    kotlinx.datetime.Instant.fromEpochMilliseconds(epochMillis.toLong())
+        .toLocalDateTime(zone(timeZone, fallbackOffset)).date.toString()

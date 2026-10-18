@@ -62,8 +62,9 @@ object SqlRenderer {
     }
 
     private fun renderNode(pred: SqlPred, alias: String, params: MutableList<Param>): String = when (pred) {
-        is SqlPred.And -> pred.parts.joinToString(" AND ") { renderNode(it, alias, params) }
-        is SqlPred.Or -> pred.parts.joinToString(" OR ") { renderNode(it, alias, params) }
+        // Every operand is parenthesized: `a AND (b OR c)` must not render as `a AND b OR c`
+        is SqlPred.And -> pred.parts.joinToString(" AND ") { "( ${renderNode(it, alias, params)} )" }
+        is SqlPred.Or -> pred.parts.joinToString(" OR ") { "( ${renderNode(it, alias, params)} )" }
         is SqlPred.Not -> "NOT ( ${renderNode(pred.part, alias, params)} )"
         is SqlPred.Column -> {
             params += pred.param
