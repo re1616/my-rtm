@@ -20,7 +20,11 @@ class MainActivity : ComponentActivity() {
                     modifier = Modifier.fillMaxSize(),
                     color = MaterialTheme.colorScheme.background
                 ) {
-                    TaskListScreen(database = app.appContainer.database)
+                    TaskListScreen(
+                        database = app.appContainer.database,
+                        authRepository = app.appContainer.authRepository,
+                        syncEngine = app.appContainer.syncEngine
+                    )
                 }
             }
         }
