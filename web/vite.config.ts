@@ -8,6 +8,15 @@ export const sharedKmp = fileURLToPath(
   new URL('../shared/build/dist/js/productionLibrary/taskly-shared.mjs', import.meta.url),
 );
 
+/**
+ * The KMP output lives outside web/, so its own npm imports (kotlinx-datetime → js-joda)
+ * would be looked up next to it. Point them at web/node_modules.
+ */
+export const sharedKmpAliases: Record<string, string> = {
+  '@taskly/shared': sharedKmp,
+  '@js-joda/core': fileURLToPath(new URL('./node_modules/@js-joda/core', import.meta.url)),
+};
+
 export default defineConfig({
   plugins: [
     react(),
@@ -28,7 +37,7 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': '/src',
-      '@taskly/shared': sharedKmp,
+      ...sharedKmpAliases,
     },
   },
 });

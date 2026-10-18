@@ -1,11 +1,9 @@
 import { defineConfig } from 'vitest/config';
-import { sharedKmp } from './vite.config';
+import { sharedKmpAliases } from './vite.config';
 
 export default defineConfig({
   resolve: {
-    alias: {
-      '@taskly/shared': sharedKmp,
-    },
+    alias: sharedKmpAliases,
   },
   test: {
     globals: true,
