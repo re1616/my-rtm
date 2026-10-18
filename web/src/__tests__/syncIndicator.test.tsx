@@ -18,6 +18,8 @@ vi.mock('../api/client', () => ({
 // Мокаем SyncService.triggerSync
 vi.mock('../features/sync/SyncService', () => ({
   triggerSync: vi.fn().mockResolvedValue('idle' as const),
+  requestSync: vi.fn(),
+  clearRejections: vi.fn(),
   SyncState: {} as Record<string, string>,
 }));
 
@@ -27,6 +29,8 @@ describe('WEB-S6: sync state indicator', () => {
     store.setState({
       session: null,
       syncState: 'idle',
+      rejections: [],
+      snapshotLoaded: null,
     });
   });
 
@@ -86,9 +90,9 @@ describe('WEB-S6: sync state indicator', () => {
     expect(screen.getByText('Синхронизировать')).toBeInTheDocument();
   });
 
-  it('кнопка ручной синхронизации вызывает triggerSync', async () => {
+  it('кнопка ручной синхронизации просит синхронизацию у вкладки-лидера', async () => {
     const syncModule = await import('../features/sync/SyncService');
-    const triggerSpy = vi.mocked(syncModule.triggerSync);
+    const requestSpy = vi.mocked(syncModule.requestSync);
 
     store.setState({
       session: { userId: 'u1', accessToken: 'at', refreshToken: 'rt', email: 'test@taskly.app' },
@@ -97,9 +101,20 @@ describe('WEB-S6: sync state indicator', () => {
     const AuthPanel = (await import('../features/sync/AuthPanel')).default;
     render(<AuthPanel />);
 
-    const btn = screen.getByText('Синхронизировать');
-    fireEvent.click(btn);
-    expect(triggerSpy).toHaveBeenCalled();
+    fireEvent.click(screen.getByText('Синхронизировать'));
+    expect(requestSpy).toHaveBeenCalled();
+  });
+
+  it('показывает отклонённые сервером изменения', async () => {
+    store.setState({
+      session: { userId: 'u1', accessToken: 'at', refreshToken: 'rt', email: 'test@taskly.app' },
+      syncState: 'idle',
+      rejections: [{ entity: 'task', entityId: 't1', type: 'update', reason: 'priority must be 1, 2 or 3', at: '2026-10-18T10:00:00Z' }],
+    });
+    const AuthPanel = (await import('../features/sync/AuthPanel')).default;
+    render(<AuthPanel />);
+    expect(screen.getByRole('alert').textContent).toContain('Сервер отклонил изменений: 1');
+    expect(screen.getByRole('alert').textContent).toContain('priority must be 1, 2 or 3');
   });
 
   it('показывает "Требуется вход" при unauthenticated', async () => {

@@ -1,5 +1,5 @@
 // WEB-S4: Дельты всех scope, включая новые списки и общие списки (SYNC-6);
-//         первый вход — снимок страницами по 1000.
+//         (снимок первого входа проверяется в snapshot.test.ts).
 import { describe, it, expect, beforeEach, beforeAll } from 'vitest';
 import { initializeDb, getDb } from '../db/database';
 import { getTaskById, addToSyncQueue } from '../entities/taskRepository';
@@ -130,7 +130,7 @@ describe('WEB-S4: multi-scope deltas + paginated snapshot', () => {
     expect(secondCount).toBe(0);
   });
 
-  it('первый вход: снимок страницами по 1000', async () => {
+  it('дельты приходят страницами по 500 до пустой страницы', async () => {
     const allSent: Array<{ after: string | null }> = [];
 
     const fetchImpl = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {

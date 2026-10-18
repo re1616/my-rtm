@@ -21,7 +21,10 @@ export default defineConfig({
   plugins: [
     react(),
     VitePWA({
-      registerType: 'autoUpdate',
+      // WEB-S8: a new version waits for the user's go-ahead (see swUpdateStrategy.ts);
+      // the app registers the worker itself via virtual:pwa-register.
+      registerType: 'prompt',
+      injectRegister: false,
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
       },
@@ -32,6 +35,13 @@ export default defineConfig({
     proxy: {
       '/v1': { target: 'http://localhost:8080', ws: true },
       '/health': 'http://localhost:8080',
+    },
+  },
+  // Same proxy for `vite preview` (Playwright runs against the production build)
+  preview: {
+    proxy: {
+      '/v1': { target: process.env.TASKLY_API ?? 'http://localhost:8080', ws: true },
+      '/health': process.env.TASKLY_API ?? 'http://localhost:8080',
     },
   },
   resolve: {

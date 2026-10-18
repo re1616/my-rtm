@@ -1,10 +1,19 @@
 // Taskly Web — account & sync status (sidebar footer).
 // The app works fully offline without an account; signing in enables server sync.
-import React, { useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useStore } from 'zustand';
 import store from '../../store/taskStore';
-import { ApiError, NetworkError, login, register, setSession } from '../../api/client';
-import { triggerSync, type SyncState } from './SyncService';
+import {
+  ApiError,
+  NetworkError,
+  forgotPassword,
+  login,
+  loginWithGoogle,
+  register,
+  resetPassword,
+  setSession,
+} from '../../api/client';
+import { clearRejections, requestSync, type SyncState } from './SyncService';
 
 const STATE_LABEL: Record<SyncState, string> = {
   idle: 'Синхронизировано',
@@ -13,30 +22,107 @@ const STATE_LABEL: Record<SyncState, string> = {
   error: 'Ошибка синхронизации',
 };
 
+const ENTITY_LABEL: Record<string, string> = { task: 'задача', list: 'список', tag: 'тег', location: 'место' };
+
+type Mode = 'login' | 'totp' | 'forgot' | 'forgot-sent' | 'reset' | 'reset-done';
+
+/** Token from a password-reset link (/reset-password?token=…), if the page was opened from one. */
+function resetTokenFromUrl(): string | null {
+  if (typeof window === 'undefined' || window.location.pathname !== '/reset-password') return null;
+  return new URLSearchParams(window.location.search).get('token');
+}
+
+function describe(e: unknown, fallback: string): string {
+  if (e instanceof NetworkError) return 'Сервер недоступен';
+  if (e instanceof ApiError) return e.message;
+  return fallback;
+}
+
 const AuthPanel: React.FC = () => {
   const session = useStore(store, (s) => s.session);
   const syncState = useStore(store, (s) => s.syncState);
+  const rejections = useStore(store, (s) => s.rejections);
+  const snapshotLoaded = useStore(store, (s) => s.snapshotLoaded);
+
+  const [resetToken] = useState(resetTokenFromUrl);
+  const [mode, setMode] = useState<Mode>(resetToken ? 'reset' : 'login');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [code, setCode] = useState('');
+  const [pendingGoogleToken, setPendingGoogleToken] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
-  async function submit(kind: 'login' | 'register') {
+  async function run(action: () => Promise<void>, fallback: string) {
     setBusy(true);
     setError(null);
     try {
-      const s = kind === 'login' ? await login({}, email, password) : await register({}, email, password);
-      store.getState().setSession(s);
-      setPassword('');
-      store.getState().setSyncState(await triggerSync());
+      await action();
     } catch (e) {
-      if (e instanceof NetworkError) setError('Сервер недоступен');
-      else if (e instanceof ApiError) setError(e.message);
-      else setError('Не удалось войти');
+      if (e instanceof ApiError && e.code === 'totp_required') {
+        setMode('totp');
+      } else {
+        setError(describe(e, fallback));
+      }
     } finally {
       setBusy(false);
     }
   }
+
+  async function signedIn(s: Awaited<ReturnType<typeof login>>) {
+    store.getState().setSession(s);
+    setPassword('');
+    setCode('');
+    setPendingGoogleToken(null);
+    setMode('login');
+    requestSync();
+  }
+
+  const submitLogin = () => run(async () => signedIn(await login({}, email, password)), 'Не удалось войти');
+  const submitRegister = () => run(async () => signedIn(await register({}, email, password)), 'Не удалось зарегистрироваться');
+  const submitCode = () =>
+    run(async () => {
+      const s = pendingGoogleToken
+        ? await loginWithGoogle({}, pendingGoogleToken, code)
+        : await login({}, email, password, code);
+      await signedIn(s);
+    }, 'Неверный код');
+  const submitForgot = () =>
+    run(async () => {
+      await forgotPassword({}, email);
+      setMode('forgot-sent');
+    }, 'Не удалось отправить письмо');
+  const submitReset = () =>
+    run(async () => {
+      await resetPassword({}, resetToken ?? '', password);
+      setPassword('');
+      window.history.replaceState(null, '', '/');
+      setMode('reset-done');
+    }, 'Ссылка недействительна или устарела');
+
+  // Google Identity Services button (shown only when a client id is configured)
+  const googleButton = useRef<HTMLDivElement>(null);
+  const googleClientId = import.meta.env.VITE_GOOGLE_CLIENT_ID;
+  useEffect(() => {
+    if (!googleClientId || session || mode !== 'login' || !googleButton.current) return;
+    const target = googleButton.current;
+    const onCredential = (credential: string) =>
+      run(async () => {
+        try {
+          await signedIn(await loginWithGoogle({}, credential));
+        } catch (e) {
+          if (e instanceof ApiError && e.code === 'totp_required') setPendingGoogleToken(credential);
+          throw e;
+        }
+      }, 'Не удалось войти через Google');
+    loadGoogleIdentity().then((google) => {
+      google.accounts.id.initialize({ client_id: googleClientId, callback: (r: { credential: string }) => void onCredential(r.credential) });
+      google.accounts.id.renderButton(target, { theme: 'outline', size: 'medium', text: 'signin_with' });
+    }).catch(() => {
+      /* offline or blocked: email sign-in still works */
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [googleClientId, session, mode]);
 
   async function logout() {
     await setSession(null);
@@ -44,13 +130,30 @@ const AuthPanel: React.FC = () => {
     store.getState().setSyncState('unauthenticated');
   }
 
-  if (session) {
+  if (session && mode !== 'reset') {
     return (
       <div className="auth-panel">
         <div className="auth-panel-user" title={session.email}>{session.email ?? 'Аккаунт'}</div>
-        <div className={`auth-panel-state auth-panel-state--${syncState}`}>{STATE_LABEL[syncState]}</div>
+        <div className={`auth-panel-state auth-panel-state--${syncState}`}>
+          {snapshotLoaded !== null ? `Загрузка данных… ${snapshotLoaded}` : STATE_LABEL[syncState]}
+        </div>
+        {rejections.length > 0 && (
+          <div className="auth-panel-error" role="alert">
+            Сервер отклонил изменений: {rejections.length}. Они отменены на этом устройстве.
+            <ul className="auth-panel-rejections">
+              {rejections.slice(0, 3).map((r) => (
+                <li key={`${r.entityId}-${r.at}`}>
+                  {ENTITY_LABEL[r.entity] ?? r.entity}: {r.reason}
+                </li>
+              ))}
+            </ul>
+            <button className="auth-panel-btn auth-panel-btn--ghost" onClick={() => void clearRejections()}>
+              Понятно
+            </button>
+          </div>
+        )}
         <div className="auth-panel-actions">
-          <button className="auth-panel-btn" onClick={() => void triggerSync().then(store.getState().setSyncState)}>
+          <button className="auth-panel-btn" onClick={() => requestSync()}>
             Синхронизировать
           </button>
           <button className="auth-panel-btn auth-panel-btn--ghost" onClick={() => void logout()}>
@@ -61,49 +164,125 @@ const AuthPanel: React.FC = () => {
     );
   }
 
+  const field = (type: string, placeholder: string, value: string, set: (v: string) => void, autoComplete: string) => (
+    <input
+      className="auth-panel-input"
+      type={type}
+      placeholder={placeholder}
+      autoComplete={autoComplete}
+      value={value}
+      onChange={(e) => set(e.target.value)}
+      required
+    />
+  );
+  const errorLine = error && <div className="auth-panel-error" role="alert">{error}</div>;
+
+  if (mode === 'reset') {
+    return (
+      <form className="auth-panel" onSubmit={(e) => { e.preventDefault(); void submitReset(); }}>
+        <div className="auth-panel-state">Новый пароль (не короче 8 символов)</div>
+        {field('password', 'новый пароль', password, setPassword, 'new-password')}
+        {errorLine}
+        <button className="auth-panel-btn" type="submit" disabled={busy || password.length < 8}>Сохранить пароль</button>
+      </form>
+    );
+  }
+
+  if (mode === 'totp') {
+    return (
+      <form className="auth-panel" onSubmit={(e) => { e.preventDefault(); void submitCode(); }}>
+        <div className="auth-panel-state">Введите код из приложения-аутентификатора</div>
+        <input
+          className="auth-panel-input"
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          placeholder="123456"
+          maxLength={6}
+          value={code}
+          onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+          required
+        />
+        {errorLine}
+        <div className="auth-panel-actions">
+          <button className="auth-panel-btn" type="submit" disabled={busy || code.length !== 6}>Войти</button>
+          <button className="auth-panel-btn auth-panel-btn--ghost" type="button" onClick={() => { setMode('login'); setCode(''); setPendingGoogleToken(null); }}>
+            Назад
+          </button>
+        </div>
+      </form>
+    );
+  }
+
+  if (mode === 'forgot' || mode === 'forgot-sent') {
+    return (
+      <form className="auth-panel" onSubmit={(e) => { e.preventDefault(); void submitForgot(); }}>
+        {mode === 'forgot-sent' ? (
+          <div className="auth-panel-state">Если этот адрес зарегистрирован, мы отправили на него ссылку для сброса пароля.</div>
+        ) : (
+          <>
+            <div className="auth-panel-state">Пришлём ссылку для сброса пароля</div>
+            {field('email', 'email', email, setEmail, 'email')}
+          </>
+        )}
+        {errorLine}
+        <div className="auth-panel-actions">
+          {mode === 'forgot' && <button className="auth-panel-btn" type="submit" disabled={busy}>Отправить</button>}
+          <button className="auth-panel-btn auth-panel-btn--ghost" type="button" onClick={() => setMode('login')}>
+            Ко входу
+          </button>
+        </div>
+      </form>
+    );
+  }
+
   return (
-    <form
-      className="auth-panel"
-      onSubmit={(e) => {
-        e.preventDefault();
-        void submit('login');
-      }}
-    >
-      <div className="auth-panel-state">Войдите, чтобы синхронизировать задачи</div>
-      <input
-        className="auth-panel-input"
-        type="email"
-        placeholder="email"
-        autoComplete="email"
-        value={email}
-        onChange={(e) => setEmail(e.target.value)}
-        required
-      />
-      <input
-        className="auth-panel-input"
-        type="password"
-        placeholder="пароль"
-        autoComplete="current-password"
-        value={password}
-        onChange={(e) => setPassword(e.target.value)}
-        required
-      />
-      {error && <div className="auth-panel-error">{error}</div>}
+    <form className="auth-panel" onSubmit={(e) => { e.preventDefault(); void submitLogin(); }}>
+      <div className="auth-panel-state">
+        {mode === 'reset-done' ? 'Пароль изменён — войдите с новым паролем' : 'Войдите, чтобы синхронизировать задачи'}
+      </div>
+      {field('email', 'email', email, setEmail, 'email')}
+      {field('password', 'пароль', password, setPassword, 'current-password')}
+      {errorLine}
       <div className="auth-panel-actions">
-        <button className="auth-panel-btn" type="submit" disabled={busy}>
-          Войти
-        </button>
-        <button
-          className="auth-panel-btn auth-panel-btn--ghost"
-          type="button"
-          disabled={busy}
-          onClick={() => void submit('register')}
-        >
+        <button className="auth-panel-btn" type="submit" disabled={busy}>Войти</button>
+        <button className="auth-panel-btn auth-panel-btn--ghost" type="button" disabled={busy} onClick={() => void submitRegister()}>
           Регистрация
         </button>
       </div>
+      <button className="auth-panel-link" type="button" onClick={() => setMode('forgot')}>
+        Забыли пароль?
+      </button>
+      {googleClientId && <div className="auth-panel-google" ref={googleButton} />}
     </form>
   );
 };
+
+interface GoogleIdentity {
+  accounts: {
+    id: {
+      initialize(options: { client_id: string; callback: (response: { credential: string }) => void }): void;
+      renderButton(parent: HTMLElement, options: Record<string, string>): void;
+    };
+  };
+}
+
+let googleScript: Promise<GoogleIdentity> | null = null;
+
+function loadGoogleIdentity(): Promise<GoogleIdentity> {
+  googleScript ??= new Promise((resolve, reject) => {
+    const existing = (window as unknown as { google?: GoogleIdentity }).google;
+    if (existing?.accounts) return resolve(existing);
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = () => resolve((window as unknown as { google: GoogleIdentity }).google);
+    script.onerror = () => {
+      googleScript = null;
+      reject(new Error('Google Identity Services failed to load'));
+    };
+    document.head.appendChild(script);
+  });
+  return googleScript;
+}
 
 export default AuthPanel;

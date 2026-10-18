@@ -34,6 +34,10 @@ for path in logs:
         keep = [l for l in clean.splitlines()
                 if any(k in l for k in ("FAIL", "Error", "×", "→", "expected", "Expected", "Received", "+ ", "- ", "❯ src"))]
         annotate(f"Vitest failures ({path})", "\n".join(keep[:200]) or clean[-15000:])
+    if path.endswith("playwright.log") or path.endswith("web-build.log"):
+        import re
+        clean = re.sub(r"\x1b\[[0-9;]*m", "", text)
+        annotate(f"Log tail ({path})", clean[-15000:])
     if "FAILURE:" in text:
         idx = text.index("FAILURE:")
         annotate(f"Gradle failure ({path})", text[idx:idx + 4000])

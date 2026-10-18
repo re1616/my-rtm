@@ -1186,3 +1186,61 @@ body {
   font-size: 0.875rem;
   color: var(--text);
 }
+/* ── App update prompt (WEB-S8) ── */
+.update-banner {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  margin: 8px 16px 0;
+  box-shadow: var(--shadow);
+}
+.update-banner span { flex: 1; }
+.update-banner-btn {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.update-banner-btn:hover { background: var(--accent-hover); }
+.update-banner-btn--ghost { background: transparent; color: var(--text-secondary); }
+.update-banner-btn--ghost:hover { background: var(--background); }
+
+/* ── Auth panel extras (WEB-S3) ── */
+.auth-panel-link {
+  background: none;
+  border: none;
+  padding: 0;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+}
+.auth-panel-google { margin-top: 8px; min-height: 32px; }
+.auth-panel-rejections { margin: 4px 0; padding-left: 16px; font-size: 12px; }
+
+/* ── Security settings ── */
+.settings-security { display: flex; flex-direction: column; gap: 8px; align-items: flex-start; }
+.settings-input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  width: 180px;
+}
+.settings-btn {
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  border-radius: var(--radius-sm);
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.settings-btn:disabled { opacity: 0.5; cursor: default; }
+.settings-secret { font-family: ui-monospace, monospace; letter-spacing: 1px; word-break: break-all; }
+.settings-link { color: var(--accent); }
+.settings-error { color: var(--overdue); font-size: 13px; }

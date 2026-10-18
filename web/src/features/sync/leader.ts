@@ -1,165 +1,124 @@
-// Taskly Web — Leader election (single-tab sync leader) + inter-tab event channel.
+// Taskly Web — one sync leader per browser (WEB-S5).
 //
-// Production: uses navigator.locks.request('sync-leader') for leader election
-// and BroadcastChannel('sync-channel') for inter-tab communication.
-// Test environment: inject mock LockService / BroadcastChannel via constructor,
-// or use the static SyncChannel._testInstances fallback.
-//
-// WEB-S5: Одна вкладка-лидер держит WebSocket (sync loop);
-//         остальные получают изменения через BroadcastChannel;
-//         смена лидера ≤ 2 с.
+// Exactly one tab runs the sync loop and holds the WebSocket. Leadership is a Web Lock: the
+// leader's lock callback never resolves while it leads, other tabs queue on the same lock and
+// the browser hands it to the next one as soon as the leader tab closes or crashes (immediately,
+// well under the 2 s budget). Tabs talk over a BroadcastChannel: followers ask the leader to
+// sync after local edits, the leader tells everyone when data changed.
 
-export interface SyncEvent {
-  type: 'sync-complete' | 'state-change';
-  payload: unknown;
+/** The part of `navigator.locks` we use (Web Locks API). */
+export interface LockManagerLike {
+  request(name: string, options: { signal?: AbortSignal }, callback: (lock: unknown) => Promise<void>): Promise<unknown>;
 }
 
-/** Boundary: abstraction over the platform LockService (navigator.locks). */
-export interface Lock {
-  release(): void;
+/** The part of `BroadcastChannel` we use. */
+export interface ChannelLike {
+  postMessage(message: unknown): void;
+  addEventListener(type: 'message', listener: (event: MessageEvent) => void): void;
+  removeEventListener(type: 'message', listener: (event: MessageEvent) => void): void;
+  close(): void;
 }
 
-export interface LockService {
-  request(name: string): Promise<Lock>;
+export type SyncMessage =
+  /** A follower wrote to the queue: the leader should push now. */
+  | { type: 'local-change' }
+  /** The leader applied server data: everyone reloads views from IndexedDB. */
+  | { type: 'data-changed' }
+  /** The leader's sync state, so every tab shows the same indicator. */
+  | { type: 'state'; state: string };
+
+export const LOCK_NAME = 'taskly-sync-leader';
+export const CHANNEL_NAME = 'taskly-sync';
+
+export interface LeadershipDeps {
+  locks?: LockManagerLike | null;
+  channel?: ChannelLike | null;
 }
 
-/** Default: try navigator.locks. Returns null when unavailable (test, old browser). */
-export function defaultLockService(): LockService | null {
-  try {
-    if (
-      typeof navigator !== 'undefined' &&
-      navigator.locks &&
-      typeof navigator.locks.request === 'function'
-    ) {
-      // LockManager → LockService через unknown (разные DOM-типы)
-      return navigator.locks as unknown as LockService;
-    }
-  } catch {
-    // navigator unavailable
-  }
-  return null;
+function platformLocks(): LockManagerLike | null {
+  const nav = typeof navigator !== 'undefined' ? (navigator as Navigator & { locks?: LockManagerLike }) : undefined;
+  return nav?.locks && typeof nav.locks.request === 'function' ? nav.locks : null;
+}
+
+function platformChannel(): ChannelLike | null {
+  return typeof BroadcastChannel !== 'undefined' ? (new BroadcastChannel(CHANNEL_NAME) as unknown as ChannelLike) : null;
 }
 
 /**
- * LeaderElector — координация, какая вкладка является лидером синхронизации.
- *
- * В production использует Web Locks API (navigator.locks.request('sync-leader')).
- * В тестах принимает mock LockService, либо работает без него (однопоточный fallback).
+ * Elects this tab as sync leader when possible and runs [onLead] while it leads.
+ * [onLead] returns a cleanup function, called when leadership ends (stop()).
  */
-export class LeaderElector {
+export class SyncLeadership {
+  private readonly locks: LockManagerLike | null;
+  private readonly channel: ChannelLike | null;
+  private abort: AbortController | null = null;
+  private releaseLock: (() => void) | null = null;
   private _isLeader = false;
-  private listeners: Array<(leader: boolean) => void> = [];
-  private locks: LockService | null;
-  private currentLock: Lock | null = null;
+  private readonly handlers = new Set<(m: SyncMessage) => void>();
+  private readonly onChannelMessage = (event: MessageEvent) => {
+    for (const h of this.handlers) h(event.data as SyncMessage);
+  };
 
-  constructor(locks?: LockService | null) {
-    this.locks = locks ?? defaultLockService();
+  constructor(deps: LeadershipDeps = {}) {
+    this.locks = deps.locks === undefined ? platformLocks() : deps.locks;
+    this.channel = deps.channel === undefined ? platformChannel() : deps.channel;
+    this.channel?.addEventListener('message', this.onChannelMessage);
   }
 
   get isLeader(): boolean {
     return this._isLeader;
   }
 
-  /** Пытаемся стать лидером. */
-  async tryClaim(): Promise<boolean> {
-    if (this._isLeader) return true;
-
-    if (this.locks) {
-      try {
-        this.currentLock = await this.locks.request('sync-leader');
-        this._isLeader = true;
-        this._notify();
-        return true;
-      } catch {
-        // Lock was taken by another tab/coroutine
-        return false;
-      }
+  /** Queues for leadership; resolves immediately (leadership may come later). */
+  start(onLead: () => () => void): void {
+    if (this.abort) return;
+    this.abort = new AbortController();
+    if (!this.locks) {
+      // No Web Locks (very old browser, tests): this tab is the only coordinator.
+      this.lead(onLead);
+      return;
     }
+    this.locks
+      .request(LOCK_NAME, { signal: this.abort.signal }, () => this.lead(onLead))
+      .catch(() => {
+        /* aborted by stop() before we got the lock */
+      });
+  }
 
-    // Fallback: single-process mode (test, or environment without Web Locks)
+  /** Gives up leadership (or the place in the queue). The next tab takes over at once. */
+  stop(): void {
+    this.abort?.abort();
+    this.abort = null;
+    this.releaseLock?.();
+  }
+
+  /** Sends to all OTHER tabs (BroadcastChannel never echoes to the sender). */
+  post(message: SyncMessage): void {
+    this.channel?.postMessage(message);
+  }
+
+  onMessage(handler: (m: SyncMessage) => void): () => void {
+    this.handlers.add(handler);
+    return () => this.handlers.delete(handler);
+  }
+
+  close(): void {
+    this.stop();
+    this.channel?.removeEventListener('message', this.onChannelMessage);
+    this.channel?.close();
+  }
+
+  /** Lock callback: lead until released. The lock is held while this promise is pending. */
+  private lead(onLead: () => () => void): Promise<void> {
     this._isLeader = true;
-    this._notify();
-    return true;
-  }
-
-  /** Отказаться от лидерства. */
-  async yield(): Promise<void> {
-    if (this.currentLock) {
-      this.currentLock.release();
-      this.currentLock = null;
-    }
-    this._isLeader = false;
-    this._notify();
-  }
-
-  /** Подписаться на смену лидера. Возвращает функцию отписки. */
-  onLeaderChange(fn: (leader: boolean) => void): () => void {
-    this.listeners.push(fn);
-    return () => {
-      this.listeners = this.listeners.filter((l) => l !== fn);
-    };
-  }
-
-  private _notify(): void {
-    for (const fn of this.listeners) fn(this._isLeader);
-  }
-}
-
-/**
- * SyncChannel — канал для передачи SyncEvent между вкладками.
- *
- * В production использует BroadcastChannel('sync-channel').
- * В тестах — статические in-memory экземпляры (как BroadcastChannel,
- * но с возможностью сброса и исключением отправителя на тестах).
- */
-export class SyncChannel {
-  private listeners: Array<(event: SyncEvent) => void> = [];
-  private static _testInstances: SyncChannel[] = [];
-  private useProductionChannel = false;
-
-  constructor(channel?: unknown) {
-    // Если передан объект с postMessage и onmessage — используем его как production-канал
-    if (channel && typeof (channel as Record<string, unknown>).postMessage === 'function') {
-      this.useProductionChannel = true;
-      const bc = channel as {
-        postMessage(msg: unknown): void;
-        onmessage: ((e: { data: unknown }) => void) | null;
+    const cleanup = onLead();
+    return new Promise<void>((resolve) => {
+      this.releaseLock = () => {
+        this.releaseLock = null;
+        this._isLeader = false;
+        cleanup();
+        resolve();
       };
-      bc.onmessage = (e: { data: unknown }) => {
-        this._receive(e.data as SyncEvent);
-      };
-    }
-    SyncChannel._testInstances.push(this);
-  }
-
-  /** Отправить событие другим вкладкам (кроме себя). */
-  broadcast(event: SyncEvent): void {
-    if (this.useProductionChannel) {
-      // BroadcastChannel доставляет всем подписчикам, включая отправителя.
-      // Мы фильтруем на стороне получателя через идентификатор отправителя,
-      // но для простоты здесь полагаемся на то, что BroadcastChannel сам
-      // исключает отправителя (зависит от реализации).
-    }
-    // Тестовый/резервный механизм: исключаем себя
-    for (const inst of SyncChannel._testInstances) {
-      if (inst !== this) inst._receive(event);
-    }
-  }
-
-  /** Подписаться на события. Возвращает функцию отписки. */
-  onMessage(fn: (event: SyncEvent) => void): () => void {
-    this.listeners.push(fn);
-    return () => {
-      this.listeners = this.listeners.filter((l) => l !== fn);
-    };
-  }
-
-  private _receive(event: SyncEvent): void {
-    for (const fn of this.listeners) fn(event);
-  }
-
-  /** Сбросить зарегистрированные тестовые экземпляры (вызывать в beforeEach). */
-  static reset(): void {
-    SyncChannel._testInstances = [];
+    });
   }
 }

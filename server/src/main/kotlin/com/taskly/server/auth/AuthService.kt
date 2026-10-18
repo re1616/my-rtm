@@ -222,12 +222,17 @@ object AuthService {
             val user = linked
                 ?: tx.selectFrom(UsersTable.TABLE).where(DSL.lower(UsersTable.EMAIL).eq(identity.email)).forUpdate().fetchOne()
                     ?.also { tx.update(UsersTable.TABLE).set(UsersTable.GOOGLE_SUB, identity.subject).where(UsersTable.ID.eq(it.get(UsersTable.ID))).execute() }
-                ?: tx.insertInto(UsersTable.TABLE)
-                    .set(UsersTable.EMAIL, identity.email)
-                    .setNull(UsersTable.PASSWORD_HASH)
-                    .set(UsersTable.GOOGLE_SUB, identity.subject)
-                    .returning(UsersTable.TABLE.asterisk())
-                    .fetchOne()!!
+                ?: run {
+                    val id = tx.insertInto(UsersTable.TABLE)
+                        .set(UsersTable.EMAIL, identity.email)
+                        .setNull(UsersTable.PASSWORD_HASH)
+                        .set(UsersTable.GOOGLE_SUB, identity.subject)
+                        .returning(UsersTable.ID)
+                        .fetchOne()!!
+                        .get(UsersTable.ID)
+                    // Re-read with typed fields (RETURNING * has no column metadata here)
+                    tx.selectFrom(UsersTable.TABLE).where(UsersTable.ID.eq(id)).fetchOne()!!
+                }
             requireSecondFactor(user, totpCode)
             issueTokens(tx, user.get(UsersTable.ID))
         }

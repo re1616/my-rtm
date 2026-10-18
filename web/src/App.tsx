@@ -1,6 +1,6 @@
 // Taskly Web — Main Application Shell
 // Three-panel layout: sidebar + content + detail panel
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import Sidebar from './features/sidebar/Sidebar';
 import TaskList from './features/tasks/TaskList';
 import TaskDetailPage from './features/tasks/TaskDetailPage';
@@ -13,6 +13,7 @@ import { initializeDb } from './db/database';
 import { getTasksByList, getLists } from './entities/taskRepository';
 import { registerPush } from './features/push/PushService';
 import { initHotkeys, destroyHotkeys } from './features/hotkeys/Hotkeys';
+import UpdateBanner from './features/sync/UpdateBanner';
 import type { AppView } from './types';
 
 function getListIdForView(view: AppView): string {
@@ -95,6 +96,22 @@ const App: React.FC = () => {
     window.addEventListener('taskly-navigate', handleNavigate);
     return () =>
       window.removeEventListener('taskly-navigate', handleNavigate);
+  }, []);
+
+  // Server data arrived (this tab's sync or the leader tab's): reload what is on screen
+  const viewRef = useRef(view);
+  viewRef.current = view;
+  useEffect(() => {
+    async function reload() {
+      const [allLists, viewTasks] = await Promise.all([getLists(), getTasksByList(getListIdForView(viewRef.current))]);
+      store.getState().setLists(allLists);
+      store.getState().setTasks(viewTasks);
+      setLists(allLists);
+      setTasks(viewTasks);
+    }
+    const handler = () => void reload();
+    window.addEventListener('taskly-data-changed', handler);
+    return () => window.removeEventListener('taskly-data-changed', handler);
   }, []);
 
   // Handle hotkey events
@@ -212,6 +229,7 @@ const App: React.FC = () => {
     <div className={`app ${detailTaskId ? 'app--has-detail' : ''}`}>
       <Sidebar currentView={view} />
       <main className="app-main">
+        <UpdateBanner />
         <MassOperationsBar
           selectedCount={selectedCount}
           onComplete={handleMassComplete}

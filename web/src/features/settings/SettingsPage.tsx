@@ -1,6 +1,7 @@
 // Taskly Web — Settings Page (shell)
 // Account, timezone, language, theme, 2FA, export, delete account
 import React from 'react';
+import SecuritySettings from './SecuritySettings';
 
 const SettingsPage: React.FC = () => {
   return (
@@ -65,10 +66,7 @@ const SettingsPage: React.FC = () => {
         <div className="settings-section">
           <h3 className="settings-section-title">Двухфакторная аутентификация</h3>
           <div className="settings-section-body">
-            <div className="settings-row">
-              <span className="settings-row-label">2FA</span>
-              <span className="settings-row-value settings-stub">Не настроено</span>
-            </div>
+            <SecuritySettings />
           </div>
         </div>
 
