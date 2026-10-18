@@ -1,12 +1,15 @@
 package com.taskly.server.tasks
 
+import com.taskly.server.db.Database
+import com.taskly.server.db.ListsTable
+import com.taskly.server.dto.*
 import io.ktor.http.*
 import io.ktor.server.application.*
 import io.ktor.server.response.*
 import io.ktor.server.routing.*
 import io.ktor.server.request.*
-import com.taskly.server.dto.*
-import com.taskly.server.tasks.requireUserId
+import org.jooq.impl.DSL
+import java.util.*
 
 fun Route.taskRoutes() {
     get("/v1/tasks") {
@@ -23,6 +26,24 @@ fun Route.taskRoutes() {
     post("/v1/tasks") {
         val userId = requireUserId(call)
         val request = call.receive<CreateTaskRequest>()
+
+        // SEC-1: ownership check on entity create — reject foreign list_id
+        if (request.listId != null) {
+            val ownerId = UUID.fromString(userId)
+            val count = Database.ctx()
+                .select(DSL.count())
+                .from(ListsTable.TABLE)
+                .where(ListsTable.ID.eq(UUID.fromString(request.listId)))
+                .and(ListsTable.OWNER_ID.eq(ownerId))
+                .fetchOneInto(Long::class.java) ?: 0L
+            if (count == 0L) {
+                throw IllegalArgumentException("List not found or access denied")
+            }
+        }
+
+        // SEC-2: reference check — parent_id within same scope
+        // (parent_id is not part of CreateTaskRequest yet; checked at sync level)
+
         val task = TaskService.create(userId, request)
         call.respond(HttpStatusCode.Created, task)
     }
