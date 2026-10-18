@@ -7,20 +7,17 @@ import com.typesafe.config.ConfigFactory
  * Converts `rateLimit.authBurstSize` → `CONFIG_RATE_LIMIT_AUTH_BURST_SIZE`.
  * Falls back to the fallback when the env var is not set.
  */
-private fun envInt(path: String, fallback: Int): Int {
-    val envName = "CONFIG_" + path.replace(".", "_", false).uppercase()
-    return System.getenv(envName)?.parseInt() ?? fallback
-}
+private fun envKey(path: String): String =
+    "CONFIG_" + path.uppercase().split("\\.").join("_")
 
-private fun envLong(path: String, fallback: Long): Long {
-    val envName = "CONFIG_" + path.replace(".", "_", false).uppercase()
-    return System.getenv(envName)?.parseLong() ?? fallback
-}
+private fun envInt(path: String, fallback: Int): Int =
+    (System.getenv(envKey(path))?.parseInt()) ?? fallback
 
-private fun envDouble(path: String, fallback: Double): Double {
-    val envName = "CONFIG_" + path.replace(".", "_", false).uppercase()
-    return System.getenv(envName)?.parseDouble() ?? fallback
-}
+private fun envLong(path: String, fallback: Long): Long =
+    (System.getenv(envKey(path))?.parseLong()) ?? fallback
+
+private fun envDouble(path: String, fallback: Double): Double =
+    (System.getenv(envKey(path))?.toDouble()) ?? fallback
 
 // Configuration data classes — maps from application.conf `taskly` block
 data class DatabaseConfig(
