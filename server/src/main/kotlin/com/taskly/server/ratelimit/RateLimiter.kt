@@ -10,6 +10,7 @@ import io.ktor.server.request.path
 import kotlinx.coroutines.delay
 import org.slf4j.LoggerFactory
 import java.security.MessageDigest
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Redis-based token bucket rate limiter (SPEC F-8).
@@ -78,6 +79,24 @@ object RateLimiter {
         val who = if (auth != null && auth.startsWith("Bearer ")) "tok:" + sha256(auth.removePrefix("Bearer ")) else "ip:$ip"
         return "api:$who" to false
     }
+
+    // ── auth-rate-limit helpers (called from AuthRoutes) ──
+
+    private val loginAttempts = ConcurrentHashMap<String, Int>()
+
+    /** Auth-specific: check + increment the attempt counter for [accountKey]. */
+    fun checkAccountLimit(accountKey: String): Boolean {
+        val n = loginAttempts.merge(accountKey, 1, Int::plus) ?: 1
+        return checkAuth(accountKey)
+    }
+
+    /** Auth-specific: clear attempt counter (successful login). */
+    fun clearAccountLimit(accountKey: String) {
+        loginAttempts.remove(accountKey)
+    }
+
+    /** Auth-specific: record a failed attempt (already counted by checkAccountLimit). */
+    fun recordFailedAttempt(accountKey: String) { /* counted in checkAccountLimit */ }
 
     internal fun logFailOpen(e: Exception) {
         logger.warn("Rate limiter unavailable, allowing request: {}", e.message)

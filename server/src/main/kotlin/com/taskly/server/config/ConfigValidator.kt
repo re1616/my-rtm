@@ -2,6 +2,8 @@ package com.taskly.server.config
 
 import com.taskly.server.Config
 
+fun Config.validate() = com.taskly.server.config.ConfigValidator.validate(this)
+
 /**
  * Config validation (CFG-1..CFG-4).
  * Called at startup to reject dangerous configurations.
@@ -12,7 +14,7 @@ object ConfigValidator {
 
     /** Validate the live config. Called at startup. */
     fun validate(cfg: Config) {
-        validateAuth(cfg.auth.jwtSecret, cfg.TASKLY_ENV)
+        validateAuth(cfg.auth.jwtSecret, cfg.env)
         validateDatabase(cfg.database.database)
     }
 
