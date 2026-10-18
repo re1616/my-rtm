@@ -1,6 +1,6 @@
 // Taskly Web — Dexie Database Setup
 import Dexie, { type Table, type EntityTable } from 'dexie';
-import type { Task, TaskList, TaskTag, TaskLocation, SyncOperation } from '../types';
+import type { Task, TaskList, TaskTag, TaskLocation, TaskNote, TaskAttachment, SyncOperation } from '../types';
 
 export class TasklyDB extends Dexie {
   tasks!: EntityTable<Task, 'id'>;
@@ -9,6 +9,8 @@ export class TasklyDB extends Dexie {
   syncQueue!: EntityTable<SyncOperation, 'opId'>;
   settings!: Table<{ key: string; value: string }, string>;
   locations!: EntityTable<TaskLocation, 'id'>;
+  notes!: EntityTable<TaskNote, 'id'>;
+  attachments!: EntityTable<TaskAttachment, 'id'>;
 
   constructor() {
     super('taskly');
@@ -38,6 +40,37 @@ export class TasklyDB extends Dexie {
       locations: 'id, name, createdAt',
       // tasks/lists/tags/syncQueue/settings unchanged
     });
+    // v6: task card (WEB-F3) — notes and attachments as synced entities, subtasks by parentId.
+    // The legacy single `task.notes` string becomes a note row, queued for sync like any edit.
+    this.version(6)
+      .stores({
+        tasks: 'id, listId, parentId, priority, dueDate, completedAt, deletedAt, version, createdAt, updatedAt, name',
+        notes: 'id, taskId, updatedAt',
+        attachments: 'id, taskId',
+      })
+      .upgrade(async (tx) => {
+        const now = new Date().toISOString();
+        let i = 0;
+        const tasks = (await tx.table('tasks').toArray()) as Task[];
+        for (const t of tasks) {
+          if (!t.notes || t.deletedAt) continue;
+          const id = crypto.randomUUID();
+          await tx.table('notes').add({ id, taskId: t.id, content: t.notes, createdAt: now, updatedAt: now });
+          await tx.table('syncQueue').add({
+            opId: crypto.randomUUID(),
+            seq: Date.now() * 1000 + 900 + (i++ % 100),
+            scope: '',
+            entity: 'note',
+            entityId: id,
+            type: 'create',
+            fields: { taskId: t.id, content: t.notes },
+            clientTs: now,
+            status: 'pending',
+            retryCount: 0,
+          } satisfies SyncOperation);
+          await tx.table('tasks').update(t.id, { notes: undefined });
+        }
+      });
   }
 }
 
@@ -73,6 +106,15 @@ export async function initializeDb(): Promise<void> {
       {
         id: 'sys-today',
         name: 'Сегодня',
+        isSystem: true,
+        sortOrder: 1,
+        archived: false,
+        createdAt: now,
+        updatedAt: now,
+      },
+      {
+        id: 'sys-tomorrow',
+        name: 'Завтра',
         isSystem: true,
         sortOrder: 1,
         archived: false,

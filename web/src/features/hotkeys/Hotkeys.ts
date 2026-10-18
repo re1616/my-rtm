@@ -1,151 +1,196 @@
-// Taskly Web — Keyboard Shortcuts (scaffold)
-// Defines app-wide keyboard shortcuts and provides setup/teardown
+// Taskly Web — keyboard control (SPEC 4.3, WEB-F4).
+//
+// Single-letter keys work whenever the focus is not in a text field. They are matched by
+// physical key (KeyboardEvent.code), so they also work with the Russian layout.
+import store from '../../store/taskStore';
+import {
+  completeTargets,
+  deleteTargets,
+  postponeTargets,
+  setPriorityTargets,
+  targetIds,
+} from '../tasks/actions';
+import { undoLast } from '../undo/undo';
 
-export interface HotkeyBinding {
-  key: string;
-  ctrl?: boolean;
-  meta?: boolean;
-  shift?: boolean;
-  alt?: boolean;
+export interface Shortcut {
+  keys: string;
   description: string;
-  handler: (e: KeyboardEvent) => void;
 }
 
-const DEFAULT_BINDINGS: HotkeyBinding[] = [
-  {
-    key: 'n',
-    ctrl: true,
-    description: 'Новая задача',
-    handler: () => {
-      // Focus the Smart Add input
-      const input = document.querySelector<HTMLInputElement>('.smartadd-input');
-      if (input) {
-        input.focus();
-        input.select();
-      }
-    },
-  },
-  {
-    key: 'Escape',
-    description: 'Закрыть / Отмена',
-    handler: () => {
-      // Close detail panel, clear selection
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'close' } }),
-      );
-      // Blur any focused input
-      if (document.activeElement instanceof HTMLElement) {
-        document.activeElement.blur();
-      }
-    },
-  },
-  {
-    key: 'a',
-    ctrl: true,
-    description: 'Выбрать все',
-    handler: () => {
-      // In production: select all visible tasks
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'select-all' } }),
-      );
-    },
-  },
-  {
-    key: 'Delete',
-    description: 'Удалить выбранные',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'delete-selected' } }),
-      );
-    },
-  },
-  {
-    key: '/',
-    ctrl: true,
-    description: 'Поиск',
-    handler: () => {
-      // Focus search / filter
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'search' } }),
-      );
-    },
-  },
-  {
-    key: 's',
-    ctrl: true,
-    description: 'Фокус на Smart Add',
-    handler: () => {
-      const input = document.querySelector<HTMLInputElement>('.smartadd-input');
-      if (input) {
-        input.focus();
-        input.select();
-      }
-    },
-  },
-  {
-    key: '?',
-    description: 'Показать шорткаты',
-    handler: () => {
-      window.dispatchEvent(
-        new CustomEvent('taskly-hotkey', { detail: { action: 'show-shortcuts' } }),
-      );
-    },
-  },
+/** Shown by "?" — the same table as SPEC 4.3. */
+export const SHORTCUTS: Shortcut[] = [
+  { keys: 'T', description: 'Новая задача (фокус в Smart Add)' },
+  { keys: 'C', description: 'Выполнить выделенные (на выполненных — вернуть в работу)' },
+  { keys: 'P', description: 'Отложить на день' },
+  { keys: '1 2 3 4', description: 'Приоритет 1 / 2 / 3 / без приоритета' },
+  { keys: 'D', description: 'Срок' },
+  { keys: 'S', description: 'Добавить теги' },
+  { keys: 'R', description: 'Переименовать' },
+  { keys: 'F', description: 'Повтор' },
+  { keys: 'M', description: 'Переместить в список' },
+  { keys: 'J / K', description: 'Следующая / предыдущая задача' },
+  { keys: 'I', description: 'Выделить / снять выделение' },
+  { keys: 'A / N', description: 'Выделить все / ничего' },
+  { keys: 'Enter', description: 'Открыть карточку задачи' },
+  { keys: '/', description: 'Поиск' },
+  { keys: 'Ctrl+Z', description: 'Отменить последнее действие' },
+  { keys: 'Delete', description: 'Удалить' },
+  { keys: 'Esc', description: 'Закрыть карточку / снять выделение' },
+  { keys: '?', description: 'Эта шпаргалка' },
 ];
 
-let isInitialized = false;
-let activeBindings: HotkeyBinding[] = [];
+export function isTypingTarget(el: Element | null): boolean {
+  if (!el) return false;
+  const tag = el.tagName.toLowerCase();
+  if (tag === 'textarea' || tag === 'select') return true;
+  if (tag === 'input') {
+    const type = (el as HTMLInputElement).type;
+    return !['checkbox', 'radio', 'button', 'submit'].includes(type);
+  }
+  return (el as HTMLElement).isContentEditable || el.getAttribute('role') === 'textbox';
+}
 
-function handleKeyDown(e: KeyboardEvent): void {
-  for (const binding of activeBindings) {
-    const keyMatch = e.key === binding.key;
-    const ctrlMatch = !!binding.ctrl === (e.ctrlKey || e.metaKey);
-    const shiftMatch = !!binding.shift === e.shiftKey;
-    const altMatch = !!binding.alt === e.altKey;
-
-    if (keyMatch && ctrlMatch && shiftMatch && altMatch) {
-      e.preventDefault();
-      e.stopPropagation();
-      binding.handler(e);
-      return;
-    }
+function focusSelector(selector: string): void {
+  const el = document.querySelector<HTMLInputElement>(selector);
+  if (el) {
+    el.focus();
+    el.select?.();
   }
 }
 
-/**
- * Initialize hotkey handling.
- * Call once when the app mounts.
- */
-export function initHotkeys(bindings?: HotkeyBinding[]): void {
-  if (isInitialized) return;
-  activeBindings = bindings || DEFAULT_BINDINGS;
-  window.addEventListener('keydown', handleKeyDown);
-  isInitialized = true;
+function moveCursor(delta: 1 | -1): void {
+  const s = store.getState();
+  const ids = s.tasks.map((t) => t.id);
+  if (!ids.length) return;
+  const i = s.cursorId ? ids.indexOf(s.cursorId) : -1;
+  const next = i < 0 ? (delta > 0 ? 0 : ids.length - 1) : Math.min(Math.max(i + delta, 0), ids.length - 1);
+  s.setCursor(ids[next]);
+  // Keep the card on the task under the pointer when the card is open
+  if (s.openTaskId) s.openTask(ids[next]);
+  document.getElementById(`task-${ids[next]}`)?.scrollIntoView?.({ block: 'nearest' });
 }
 
-/**
- * Tear down hotkey handling.
- * Call when the app unmounts.
- */
+function needTargets(open: () => void): void {
+  if (targetIds().length) open();
+}
+
+/** Returns true when the key was handled. Exported for tests. */
+export function handleKey(e: KeyboardEvent): boolean {
+  const s = store.getState();
+  const typing = isTypingTarget(document.activeElement);
+
+  if (e.key === 'Escape') {
+    if (s.dialog) {
+      s.setDialog(null);
+      return true;
+    }
+    if (typing) {
+      (document.activeElement as HTMLElement).blur();
+      return true;
+    }
+    if (s.selectedTaskIds.length) s.clearSelection();
+    else s.openTask(null);
+    return true;
+  }
+  if (s.dialog || typing) return false;
+
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && e.code === 'KeyZ' && !e.shiftKey) {
+    void undoLast();
+    return true;
+  }
+  if (e.ctrlKey || e.metaKey || e.altKey) return false;
+
+  if (e.key === '?' || (e.shiftKey && e.code === 'Slash')) {
+    s.setDialog('shortcuts');
+    return true;
+  }
+  if (e.shiftKey) return false;
+
+  switch (e.code) {
+    case 'KeyT':
+      focusSelector('.smartadd-input--primary');
+      return true;
+    case 'Slash':
+      focusSelector('.topbar-search-input');
+      return true;
+    case 'KeyJ':
+      moveCursor(1);
+      return true;
+    case 'KeyK':
+      moveCursor(-1);
+      return true;
+    case 'Enter': {
+      // Enter on a button or link keeps its native meaning
+      const tag = document.activeElement?.tagName.toLowerCase();
+      if (tag === 'button' || tag === 'a') return false;
+      if (s.cursorId) s.openTask(s.cursorId);
+      return !!s.cursorId;
+    }
+    case 'KeyI':
+      if (s.cursorId) s.toggleTaskSelection(s.cursorId);
+      return true;
+    case 'KeyA':
+      s.setSelectedTaskIds(s.tasks.map((t) => t.id));
+      return true;
+    case 'KeyN':
+      s.clearSelection();
+      return true;
+    case 'KeyC':
+      void completeTargets();
+      return true;
+    case 'KeyP':
+      void postponeTargets();
+      return true;
+    case 'Digit1':
+    case 'Digit2':
+    case 'Digit3':
+    case 'Numpad1':
+    case 'Numpad2':
+    case 'Numpad3':
+      void setPriorityTargets(Number(e.code.slice(-1)) as 1 | 2 | 3);
+      return true;
+    case 'Digit4':
+    case 'Numpad4':
+      void setPriorityTargets(null);
+      return true;
+    case 'KeyD':
+      needTargets(() => s.setDialog('due'));
+      return true;
+    case 'KeyS':
+      needTargets(() => s.setDialog('tags'));
+      return true;
+    case 'KeyR':
+      needTargets(() => s.setDialog('rename'));
+      return true;
+    case 'KeyF':
+      needTargets(() => s.setDialog('repeat'));
+      return true;
+    case 'KeyM':
+      needTargets(() => s.setDialog('move'));
+      return true;
+    case 'Delete':
+      void deleteTargets();
+      return true;
+    default:
+      return false;
+  }
+}
+
+function onKeyDown(e: KeyboardEvent): void {
+  if (e.defaultPrevented || e.isComposing) return;
+  if (handleKey(e)) e.preventDefault();
+}
+
+let installed = false;
+
+export function initHotkeys(): void {
+  if (installed) return;
+  window.addEventListener('keydown', onKeyDown);
+  installed = true;
+}
+
 export function destroyHotkeys(): void {
-  if (!isInitialized) return;
-  window.removeEventListener('keydown', handleKeyDown);
-  activeBindings = [];
-  isInitialized = false;
+  if (!installed) return;
+  window.removeEventListener('keydown', onKeyDown);
+  installed = false;
 }
-
-/**
- * Get the current list of active hotkey bindings.
- */
-export function getBindings(): HotkeyBinding[] {
-  return [...activeBindings];
-}
-
-/**
- * Get the default bindings for display in the shortcuts help.
- */
-export function getDefaultBindings(): HotkeyBinding[] {
-  return [...DEFAULT_BINDINGS];
-}
-
-export default { initHotkeys, destroyHotkeys, getBindings, getDefaultBindings };

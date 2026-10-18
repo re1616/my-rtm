@@ -137,6 +137,12 @@ jobs:
       - name: Build shared KMP module for the web (Kotlin/JS → ES module)
         shell: bash
         run: ./gradlew :shared:webLibrary --console=plain 2>&1 | tee gradle-web.log; exit ${PIPESTATUS[0]}
+      - name: Keep the shared JS library (local web development without a Kotlin toolchain)
+        uses: actions/upload-artifact@v4
+        with:
+          name: shared-web-library
+          path: shared/build/dist/js/productionLibrary
+          retention-days: 7
       - uses: actions/setup-node@v5
         with:
           node-version: "22"

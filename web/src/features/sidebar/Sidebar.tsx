@@ -1,185 +1,242 @@
-// Taskly Web — Sidebar with system views and navigation
-import React from 'react';
-import type { AppView } from '../../types';
+// Taskly Web — sidebar (SPEC 4.1): Inbox and system views, lists, smart lists, tags, locations,
+// each with task counts; "+" creates a list or a smart list. Collapses to icons.
+import React, { useMemo, useState } from 'react';
+import { useStore } from 'zustand';
 import store from '../../store/taskStore';
+import type { AppView, Task } from '../../types';
 import AuthPanel from '../sync/AuthPanel';
+import { SYSTEM_VIEWS, sameView } from '../app/view';
+import { inView, createList } from '../../entities/taskRepository';
+import { refreshData } from '../app/data';
+import { checkQuery, runQuery } from '../query/smartQuery';
 
-const systemViews: {
-  id: string;
-  label: string;
-  icon: string;
-  view: AppView;
-}[] = [
-  {
-    id: 'inbox',
-    label: 'Входящие',
-    icon: '\u{1F4E5}',
-    view: { kind: 'system', view: 'inbox' },
-  },
-  {
-    id: 'today',
-    label: 'Сегодня',
-    icon: '\u{1F4C5}',
-    view: { kind: 'system', view: 'today' },
-  },
-  {
-    id: 'overdue',
-    label: 'Просрочено',
-    icon: '\u26A0\uFE0F',
-    view: { kind: 'system', view: 'overdue' },
-  },
-  {
-    id: 'week',
-    label: 'Неделя',
-    icon: '\u{1F4C6}',
-    view: { kind: 'system', view: 'week' },
-  },
-  {
-    id: 'all',
-    label: 'Все задачи',
-    icon: '\u{1F4CB}',
-    view: { kind: 'system', view: 'all' },
-  },
-  {
-    id: 'completed',
-    label: 'Выполненные',
-    icon: '\u2705',
-    view: { kind: 'system', view: 'completed' },
-  },
-];
+export function navigate(view: AppView): void {
+  const s = store.getState();
+  s.setCurrentView(view);
+  window.dispatchEvent(new CustomEvent('taskly-navigate', { detail: view }));
+}
 
-const Sidebar: React.FC<{ currentView: AppView }> = ({ currentView }) => {
-  const storeState = store.getState();
-  const tasks = storeState.tasks;
-  const lists = storeState.lists;
+const Item: React.FC<{ view: AppView; current: AppView; icon: string; label: string; count?: number; collapsed: boolean }> = ({
+  view,
+  current,
+  icon,
+  label,
+  count,
+  collapsed,
+}) => {
+  const active = sameView(view, current);
+  return (
+    <button
+      type="button"
+      className={`sidebar-item${active ? ' sidebar-item--active' : ''}`}
+      aria-current={active ? 'page' : undefined}
+      title={collapsed ? label : undefined}
+      onClick={() => navigate(view)}
+    >
+      <span className="sidebar-item-icon" aria-hidden="true">{icon}</span>
+      <span className="sidebar-item-label">{label}</span>
+      {count !== undefined && count > 0 && (
+        <span className="sidebar-item-count" aria-label={`${count} задач`}>
+          {count}
+        </span>
+      )}
+    </button>
+  );
+};
 
-  function countForView(view: AppView): number {
-    if (view.kind === 'system') {
-      if (view.view === 'completed') {
-        return tasks.filter((t) => !!t.completedAt).length;
-      }
-      return tasks.filter((t) => !t.completedAt).length;
-    }
-    if (view.kind === 'list' || view.kind === 'smart') {
-      return tasks.filter((t) => t.listId === view.listId && !t.completedAt).length;
-    }
-    return 0;
-  }
+const Sidebar: React.FC = () => {
+  const current = useStore(store, (s) => s.currentView);
+  const allTasks = useStore(store, (s) => s.allTasks);
+  const lists = useStore(store, (s) => s.lists);
+  const tagNames = useStore(store, (s) => s.tagNames);
+  const locations = useStore(store, (s) => s.locations);
+  const isOnline = useStore(store, (s) => s.isOnline);
+  const [collapsed, setCollapsed] = useState(false);
+  const [newList, setNewList] = useState<string | null>(null);
 
-  function isActive(view: AppView): boolean {
-    if (currentView.kind !== view.kind) return false;
-    if (view.kind === 'system') {
-      return (
-        currentView.kind === 'system' && currentView.view === view.view
-      );
-    }
-    if (view.kind === 'list') {
-      return (
-        currentView.kind === 'list' && currentView.listId === view.listId
-      );
-    }
-    if (view.kind === 'smart') {
-      return (
-        currentView.kind === 'smart' && currentView.listId === view.listId
-      );
-    }
-    return false;
-  }
+  const open = useMemo(() => allTasks.filter((t) => !t.completedAt), [allTasks]);
+  const userLists = lists.filter((l) => !l.isSystem && !l.isSmart);
+  const smartLists = lists.filter((l) => l.isSmart);
 
-  function navigateTo(view: AppView) {
-    store.getState().setCurrentView(view);
-    window.dispatchEvent(
-      new CustomEvent('taskly-navigate', { detail: view }),
+  const counts = useMemo(() => {
+    const top = (tasks: Task[]) => tasks.length;
+    const system = Object.fromEntries(
+      SYSTEM_VIEWS.map((v) => [v.view, v.view === 'completed' ? 0 : top(open.filter((t) => inView(t, 'sys-' + v.view)))]),
     );
-  }
+    const byList = new Map<string, number>();
+    const byTag = new Map<string, number>();
+    const byLoc = new Map<string, number>();
+    for (const t of open) {
+      byList.set(t.listId, (byList.get(t.listId) ?? 0) + 1);
+      for (const tag of t.tags) byTag.set(tag, (byTag.get(tag) ?? 0) + 1);
+      if (t.locationId) byLoc.set(t.locationId, (byLoc.get(t.locationId) ?? 0) + 1);
+    }
+    const bySmart = new Map<string, number>();
+    for (const l of smartLists) {
+      const q = l.filterQuery ?? '';
+      if (!q.trim() || checkQuery(q)) continue;
+      try {
+        bySmart.set(l.id, runQuery(q, open, { lists, locations }).length);
+      } catch {
+        /* invalid query: no count */
+      }
+    }
+    return { system, byList, byTag, byLoc, bySmart };
+  }, [open, smartLists, lists, locations]);
 
-  function isPageActive(kind: string): boolean {
-    return currentView.kind === kind;
+  async function addList(name: string) {
+    const trimmed = name.trim();
+    setNewList(null);
+    if (!trimmed) return;
+    const list = await createList(trimmed);
+    await refreshData();
+    navigate({ kind: 'list', listId: list.id });
   }
 
   return (
-    <nav className="sidebar">
+    <nav className={`sidebar${collapsed ? ' sidebar--collapsed' : ''}`} aria-label="Навигация">
       <div className="sidebar-header">
-        <h1 className="sidebar-logo">Taskly</h1>
+        <span className="sidebar-logo">Taskly</span>
+        <button
+          type="button"
+          className="sidebar-collapse"
+          aria-label={collapsed ? 'Развернуть меню' : 'Свернуть меню'}
+          aria-expanded={!collapsed}
+          onClick={() => setCollapsed(!collapsed)}
+        >
+          {collapsed ? '»' : '«'}
+        </button>
       </div>
 
-      <div className="sidebar-section">
-        <div className="sidebar-section-title">
-          Представления
+      <div className="sidebar-scroll">
+        <div className="sidebar-section" role="group" aria-label="Представления">
+          {SYSTEM_VIEWS.map((v) => (
+            <Item
+              key={v.view}
+              view={{ kind: 'system', view: v.view }}
+              current={current}
+              icon={v.icon}
+              label={v.label}
+              count={counts.system[v.view]}
+              collapsed={collapsed}
+            />
+          ))}
         </div>
-        {systemViews.map((sv) => (
-          <button
-            key={sv.id}
-            className={`sidebar-item ${
-              isActive(sv.view) ? 'sidebar-item--active' : ''
-            }`}
-            onClick={() => navigateTo(sv.view)}
-          >
-            <span className="sidebar-item-icon">{sv.icon}</span>
-            <span className="sidebar-item-label">{sv.label}</span>
-            <span className="sidebar-item-count">{countForView(sv.view)}</span>
-          </button>
-        ))}
-      </div>
 
-      {lists.length > 0 && (
-        <div className="sidebar-section">
+        <div className="sidebar-section" role="group" aria-label="Списки">
           <div className="sidebar-section-title">
-            Списки
+            <span>Списки</span>
+            <button type="button" className="sidebar-add" aria-label="Новый список" onClick={() => setNewList('')}>
+              +
+            </button>
           </div>
-          {lists
-            .filter((l) => !l.isSystem)
-            .map((list) => {
-              const listView: AppView = { kind: 'list', listId: list.id };
-              return (
-                <button
-                  key={list.id}
-                  className={`sidebar-item ${
-                    isActive(listView) ? 'sidebar-item--active' : ''
-                  }`}
-                  onClick={() => navigateTo(listView)}
-                >
-                  <span className="sidebar-item-icon">{list.color ? '\u25CF' : '\u25CB'}</span>
-                  <span className="sidebar-item-label">{list.name}</span>
-                  <span className="sidebar-item-count">
-                    {countForView(listView)}
-                  </span>
-                </button>
-              );
-            })}
+          {newList !== null && (
+            <form
+              className="sidebar-new"
+              onSubmit={(e) => {
+                e.preventDefault();
+                // Creation happens once, on blur (Enter blurs the field)
+                (e.currentTarget.querySelector('input') as HTMLInputElement | null)?.blur();
+              }}
+            >
+              <input
+                className="sidebar-new-input"
+                aria-label="Название нового списка"
+                autoFocus
+                value={newList}
+                onChange={(e) => setNewList(e.target.value)}
+                onBlur={() => void addList(newList)}
+                onKeyDown={(e) => e.key === 'Escape' && setNewList(null)}
+              />
+            </form>
+          )}
+          {userLists.map((l) => (
+            <Item
+              key={l.id}
+              view={{ kind: 'list', listId: l.id }}
+              current={current}
+              icon={l.color ? '●' : '○'}
+              label={l.name}
+              count={counts.byList.get(l.id)}
+              collapsed={collapsed}
+            />
+          ))}
         </div>
-      )}
+
+        <div className="sidebar-section" role="group" aria-label="Умные списки">
+          <div className="sidebar-section-title">
+            <span>Умные списки</span>
+            <button type="button" className="sidebar-add" aria-label="Новый умный список" onClick={() => navigate({ kind: 'smart-lists' })}>
+              +
+            </button>
+          </div>
+          {smartLists.map((l) => (
+            <Item
+              key={l.id}
+              view={{ kind: 'smart', listId: l.id }}
+              current={current}
+              icon="🔎"
+              label={l.name}
+              count={counts.bySmart.get(l.id)}
+              collapsed={collapsed}
+            />
+          ))}
+        </div>
+
+        {tagNames.length > 0 && (
+          <div className="sidebar-section" role="group" aria-label="Теги">
+            <div className="sidebar-section-title">
+              <span>Теги</span>
+            </div>
+            <div className="sidebar-tags">
+              {tagNames.map((tag) => {
+                const view: AppView = { kind: 'tag', tag };
+                const active = sameView(view, current);
+                return (
+                  <button
+                    key={tag}
+                    type="button"
+                    className={`sidebar-tag${active ? ' sidebar-tag--active' : ''}`}
+                    aria-current={active ? 'page' : undefined}
+                    onClick={() => navigate(view)}
+                  >
+                    #{tag}
+                    {counts.byTag.get(tag) ? <span className="sidebar-tag-count">{counts.byTag.get(tag)}</span> : null}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {locations.length > 0 && (
+          <div className="sidebar-section" role="group" aria-label="Места">
+            <div className="sidebar-section-title">
+              <span>Места</span>
+            </div>
+            {locations.map((l) => (
+              <Item
+                key={l.id}
+                view={{ kind: 'location', locationId: l.id }}
+                current={current}
+                icon="📍"
+                label={l.name}
+                count={counts.byLoc.get(l.id)}
+                collapsed={collapsed}
+              />
+            ))}
+          </div>
+        )}
+      </div>
 
       <div className="sidebar-footer">
         <AuthPanel />
-        <div className="sidebar-sync-status">
-          {storeState.isOnline ? 'В сети' : 'Офлайн'}
+        <div className="sidebar-sync-status" role="status">
+          {isOnline ? 'В сети' : 'Офлайн'}
         </div>
         <div className="sidebar-nav-links">
-          <button
-            className={`sidebar-nav-link ${
-              isPageActive('smart-lists') ? 'sidebar-item--active' : ''
-            }`}
-            onClick={() => navigateTo({ kind: 'smart-lists' })}
-          >
-            🔍 Умные списки
-          </button>
-          <button
-            className={`sidebar-nav-link ${
-              isPageActive('settings') ? 'sidebar-item--active' : ''
-            }`}
-            onClick={() => navigateTo({ kind: 'settings' })}
-          >
-            ⚙️ Настройки
-          </button>
-          <button
-            className={`sidebar-nav-link ${
-              isPageActive('onboarding') ? 'sidebar-item--active' : ''
-            }`}
-            onClick={() => navigateTo({ kind: 'onboarding' })}
-          >
-            🎓 Обучение
-          </button>
+          <Item view={{ kind: 'settings' }} current={current} icon="⚙️" label="Настройки" collapsed={collapsed} />
+          <Item view={{ kind: 'onboarding' }} current={current} icon="🎓" label="Знакомство и шпаргалка" collapsed={collapsed} />
         </div>
       </div>
     </nav>
