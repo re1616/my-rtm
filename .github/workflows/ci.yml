@@ -77,7 +77,20 @@ jobs:
           TASKLY_E2E_REQUIRED: "true"
         run: |
           npm ci
-          npx vitest run src/__tests__/offlineSync.e2e.test.ts --reporter=default --reporter=github-actions 2>&1 | tee ../vitest-e2e.log; exit ${PIPESTATUS[0]}
+          npx vitest run src/__tests__/offlineSync.e2e.test.ts src/__tests__/authAndSnapshot.e2e.test.ts --reporter=default --reporter=github-actions 2>&1 | tee ../vitest-e2e.log; exit ${PIPESTATUS[0]}
+      - name: Build the web app for browser tests
+        shell: bash
+        run: |
+          ./gradlew :shared:webLibrary --console=plain 2>&1 | tee gradle-web-lib.log
+          (cd web && npm run build) 2>&1 | tee web-build.log; exit ${PIPESTATUS[0]}
+      - name: Playwright — multi-tab leader and realtime updates (WEB-S5)
+        working-directory: web
+        shell: bash
+        env:
+          TASKLY_API: http://localhost:8080
+        run: |
+          npx playwright install --with-deps chromium > /dev/null
+          npx playwright test 2>&1 | tee ../playwright.log; exit ${PIPESTATUS[0]}
       - name: Android E2E — offline sync against the real server (phase 1 acceptance)
         shell: bash
         env:
@@ -99,7 +112,7 @@ jobs:
           exit $status
       - name: Report failures as annotations
         if: failure()
-        run: python3 .github/scripts/report_failures.py gradle-shared.log gradle-server.log server-run.log vitest-e2e.log gradle-android-e2e.log
+        run: python3 .github/scripts/report_failures.py gradle-shared.log gradle-server.log server-run.log vitest-e2e.log web-build.log playwright.log gradle-android-e2e.log
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4

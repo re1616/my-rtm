@@ -58,7 +58,8 @@ fun Application.configureStatusPages() {
             // Never leak internal exception messages for 5xx
             val message = if (status == HttpStatusCode.InternalServerError) "Internal server error"
                 else cause.message ?: status.description
-            call.respond(status, mapOf("error" to message))
+            val code = (cause as? UnauthorizedException)?.code
+            call.respond(status, if (code != null) mapOf("error" to message, "code" to code) else mapOf("error" to message))
             if (status == HttpStatusCode.InternalServerError) {
                 logger.error("Unhandled exception", cause)
             }

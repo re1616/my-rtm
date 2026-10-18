@@ -1,134 +1,92 @@
-// Taskly Web — Service Worker update strategy.
+// Taskly Web — app update flow (WEB-S8).
 //
-// WEB-S8: При обнаружении новой версии SW → показать UI «новая версия —
-// обновить сейчас»; skipWaiting() только по подтверждению пользователя;
-// НЕ вызывать location.reload() при активном вводе (проверка focus на input/textarea).
-//
-// Используется из main.tsx и/или отдельного модуля инициализации SW.
+// A new Service Worker version is installed in the background and WAITS. The user sees
+// "New version available — Update". Only on their click the waiting worker takes over and the
+// page reloads — and never while they are typing: then the reload waits until focus leaves the
+// field. Nothing reloads by itself, so no input is lost.
 
-/** Состояния процесса обновления Service Worker. */
-export type SWUpdateState =
-  | 'idle'
-  | 'update-ready'       // новая версия загружена, ждём подтверждения
-  | 'activating'         // skipWaiting вызван, ждём activated
-  | 'activated';         // новый SW активирован, можно перезагрузить
+/** Signature of `registerSW` from `virtual:pwa-register` (vite-plugin-pwa). */
+export type RegisterSW = (options: {
+  immediate?: boolean;
+  onNeedRefresh?: () => void;
+  onOfflineReady?: () => void;
+  onRegisterError?: (error: unknown) => void;
+}) => (reloadPage?: boolean) => Promise<void>;
 
-export type SWUpdateListener = (state: SWUpdateState) => void;
+export type UpdateState = 'idle' | 'update-ready' | 'waiting-for-input' | 'updating';
 
-/**
- * SWUpdateStrategy — управление жизненным циклом обновления Service Worker.
- *
- * @example
- * const strategy = new SWUpdateStrategy(registration);
- * strategy.onStateChange((state) => {
- *   if (state === 'update-ready') showUpdateBanner();
- * });
- */
-export class SWUpdateStrategy {
-  private _state: SWUpdateState = 'idle';
-  private listeners: SWUpdateListener[] = [];
-  private registration: ServiceWorkerRegistration;
-  private reloadFn: (() => void) | null;
+export interface UpdateControllerDeps {
+  isInputFocused?: () => boolean;
+  /** Subscribes to "focus left the current field"; returns an unsubscribe function. */
+  onInputBlur?: (fn: () => void) => () => void;
+}
 
-  constructor(
-    registration: ServiceWorkerRegistration,
-    reloadFn?: () => void,
-  ) {
-    this.registration = registration;
-    this.reloadFn = reloadFn ?? (() => {
-      window.location.reload();
-    });
+export class SwUpdateController {
+  private _state: UpdateState = 'idle';
+  private readonly listeners = new Set<(s: UpdateState) => void>();
+  private readonly updateSW: (reloadPage?: boolean) => Promise<void>;
+  private readonly inputFocused: () => boolean;
+  private readonly onBlur: (fn: () => void) => () => void;
 
-    // Подписываемся на обнаружение новой версии
-    this.registration.addEventListener('updatefound', () => {
-      this._setState('update-ready');
+  constructor(register: RegisterSW, deps: UpdateControllerDeps = {}) {
+    this.inputFocused = deps.isInputFocused ?? isInputFocused;
+    this.onBlur = deps.onInputBlur ?? onDocumentFocusOut;
+    this.updateSW = register({
+      immediate: true,
+      onNeedRefresh: () => this.setState('update-ready'),
     });
   }
 
-  get state(): SWUpdateState {
+  get state(): UpdateState {
     return this._state;
   }
 
-  /** Подписаться на изменения состояния. */
-  onStateChange(fn: SWUpdateListener): () => void {
-    this.listeners.push(fn);
-    return () => {
-      this.listeners = this.listeners.filter((l) => l !== fn);
-    };
+  onChange(fn: (s: UpdateState) => void): () => void {
+    this.listeners.add(fn);
+    return () => this.listeners.delete(fn);
   }
 
-  /**
-   * Пользователь подтвердил обновление.
-   * Вызываем skipWaiting() и ждём активации.
-   */
-  async confirmUpdate(): Promise<void> {
+  /** The user accepted the update. */
+  async apply(): Promise<void> {
     if (this._state !== 'update-ready') return;
-
-    this._setState('activating');
-
-    const installing = this.registration.installing;
-    // skipWaiting() существует на ServiceWorker в браузерах, но TS DOM typings
-    // могут его не включать — используем каст через unknown
-    const sw = installing as unknown as Record<string, unknown>;
-    if (installing && typeof sw.skipWaiting === 'function') {
-      await (sw.skipWaiting as () => Promise<void>)();
-
-      // Ждём перехода в activated через statechange
-      if (installing.state !== 'activated') {
-        await new Promise<void>((resolve) => {
-          const onStateChange = () => {
-            if (installing.state === 'activated') {
-              installing.removeEventListener('statechange', onStateChange);
-              resolve();
-            }
-          };
-          installing.addEventListener('statechange', onStateChange);
+    if (this.inputFocused()) {
+      this.setState('waiting-for-input');
+      await new Promise<void>((resolve) => {
+        const off = this.onBlur(() => {
+          if (this.inputFocused()) return;
+          off();
+          resolve();
         });
-      }
+      });
     }
-
-    this._setState('activated');
-
-    // Перезагрузка только если пользователь НЕ редактирует поле ввода
-    if (!isInputFocused()) {
-      try {
-        this.reloadFn?.();
-      } catch {
-        // reload может быть недоступен в тестовом окружении (jsdom)
-      }
-    }
+    this.setState('updating');
+    // Activates the waiting worker and reloads once it controls the page
+    await this.updateSW(true);
   }
 
-  /**
-   * Сбросить состояние (например, если обновление уже неактуально).
-   */
-  reset(): void {
-    this._setState('idle');
+  /** "Later": hide the prompt; the new version activates on the next visit. */
+  dismiss(): void {
+    if (this._state === 'update-ready') this.setState('idle');
   }
 
-  private _setState(next: SWUpdateState): void {
-    this._state = next;
-    for (const fn of this.listeners) fn(next);
+  private setState(s: UpdateState): void {
+    this._state = s;
+    for (const fn of this.listeners) fn(s);
   }
 }
 
-/**
- * Проверяет, находится ли фокус на элементе ввода (input, textarea, select).
- * Если пользователь активно печатает — НЕ перезагружаем страницу.
- */
+/** True while the user is typing in a field (reloading would lose the input). */
 export function isInputFocused(): boolean {
-  try {
-    const el = document.activeElement;
-    if (!el) return false;
-    const tag = el.tagName?.toLowerCase() ?? '';
-    return (
-      tag === 'input' ||
-      tag === 'textarea' ||
-      tag === 'select' ||
-      el.getAttribute('contenteditable') === 'true' ||
-      el.getAttribute('role') === 'textbox'
-    );
-  } catch {
-    return false;
-  }
+  if (typeof document === 'undefined') return false;
+  const el = document.activeElement as HTMLElement | null;
+  if (!el) return false;
+  const tag = el.tagName.toLowerCase();
+  return tag === 'input' || tag === 'textarea' || tag === 'select' || el.isContentEditable || el.getAttribute('role') === 'textbox';
+}
+
+function onDocumentFocusOut(fn: () => void): () => void {
+  // focusout fires before the next element is focused; check on the next tick
+  const handler = () => setTimeout(fn, 0);
+  document.addEventListener('focusout', handler);
+  return () => document.removeEventListener('focusout', handler);
 }

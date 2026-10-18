@@ -112,7 +112,8 @@ class SyncEngine(
         var acknowledged = 0
         db.withTransaction {
             for (r in results) {
-                if (r.status == "ok") {
+                // "conflict_resolved" = applied, some fields lost to newer server values (SYNC-1)
+                if (r.status == "ok" || r.status == "conflict_resolved") {
                     db.syncQueueDao().remove(r.opId)
                     acknowledged++
                 } else {

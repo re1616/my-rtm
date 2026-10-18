@@ -225,7 +225,8 @@ class IntegrationTestSync {
                 op(u, "b-3", c, "create", """{"name":"third"}"""),
             ).joinToString(",")
         )
-        assertEquals(listOf("ok", "error", "ok"), res.results.map { it.status })
+        // SYNC-1: an invalid op is a final rejection ("rejected"), not a retryable "error"
+        assertEquals(listOf("ok", "rejected", "ok"), res.results.map { it.status })
         val names = client.tasks(u).map { it.name }.toSet()
         assertEquals(setOf("first", "third"), names)
 
@@ -271,7 +272,8 @@ class IntegrationTestSync {
         client.sync(u, """{"opId":"l-2","scope":"user:${u.id}","entity":"task","entityId":"$id","type":"update","fields":{"name":"from A"},"baseVersion":1}""")
         // Device B, still on base version 1, renames and changes priority
         val res = client.sync(u, """{"opId":"l-3","scope":"user:${u.id}","entity":"task","entityId":"$id","type":"update","fields":{"name":"from B","priority":2},"baseVersion":1}""")
-        assertEquals("ok", res.results.single().status)
+        // SYNC-1: applied, but a field lost to a newer server value → "conflict_resolved"
+        assertEquals("conflict_resolved", res.results.single().status)
         val t = client.tasks(u).single()
         assertEquals("from A", t.name, "stale rename must be skipped")
         assertEquals(2, t.priority, "untouched field from the same op is applied")

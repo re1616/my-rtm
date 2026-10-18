@@ -25,6 +25,18 @@ fun Route.syncRoutes() {
         call.respond(HttpStatusCode.OK, response)
     }
 
+    /** Initial snapshot for a new device, paged by task id (WEB-S4, AND-S6). */
+    get("/v1/sync/snapshot") {
+        val versionResult = SyncVersion.validate(call.request.headers["Taskly-Sync-Version"])
+        if (!versionResult.accepted) {
+            throw UpgradeRequiredException(versionResult.error ?: "Sync version not accepted")
+        }
+        val userId = requireUserId(call)
+        val cursor = call.request.queryParameters["cursor"]
+        val limit = call.request.queryParameters["limit"]?.toIntOrNull() ?: SnapshotService.MAX_PAGE
+        call.respond(HttpStatusCode.OK, SnapshotService.page(userId, cursor, limit))
+    }
+
     get("/v1/sync/changes") {
         // SYNC-7: validate sync version header
         val versionResult = SyncVersion.validate(call.request.headers["Taskly-Sync-Version"])

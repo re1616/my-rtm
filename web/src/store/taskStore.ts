@@ -1,7 +1,7 @@
 // Taskly Web — Zustand Store
 import { create } from 'zustand';
 import type { Task, TaskList, AppView, SortField, Session } from '../types';
-import type { SyncState } from '../features/sync/SyncService';
+import type { SyncState, SyncRejection } from '../features/sync/SyncService';
 
 interface AppStore {
   // State
@@ -16,6 +16,12 @@ interface AppStore {
   sortAsc: boolean;
   syncState: SyncState;
   session: Session | null;
+  /** Local changes the server refused (rolled back), newest first. */
+  rejections: SyncRejection[];
+  /** Tasks loaded by the first-sync snapshot so far; null when no snapshot is running. */
+  snapshotLoaded: number | null;
+  /** A new app version is installed and waits for the user's go-ahead (WEB-S8). */
+  updateReady: boolean;
 
   // Actions
   setTasks: (tasks: Task[]) => void;
@@ -31,6 +37,9 @@ interface AppStore {
   toggleSortAsc: () => void;
   setSyncState: (s: SyncState) => void;
   setSession: (s: Session | null) => void;
+  setRejections: (r: SyncRejection[]) => void;
+  setSnapshotLoaded: (n: number | null) => void;
+  setUpdateReady: (ready: boolean) => void;
 }
 
 // Create a Zustand store
@@ -46,6 +55,9 @@ const store = create<AppStore>()((set) => ({
   sortAsc: false,
   syncState: 'idle',
   session: null,
+  rejections: [],
+  snapshotLoaded: null,
+  updateReady: false,
 
   setTasks: (tasks) => set({ tasks }),
   setLists: (lists) => set({ lists }),
@@ -70,6 +82,9 @@ const store = create<AppStore>()((set) => ({
     set((state) => ({ sortAsc: !state.sortAsc })),
   setSyncState: (syncState) => set({ syncState }),
   setSession: (session) => set({ session }),
+  setRejections: (rejections) => set({ rejections }),
+  setSnapshotLoaded: (snapshotLoaded) => set({ snapshotLoaded }),
+  setUpdateReady: (updateReady) => set({ updateReady }),
 }));
 
 export default store;
