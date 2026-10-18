@@ -11,110 +11,85 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.taskly.android.core.database.TaskEntity
-import kotlinx.coroutines.launch
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun TaskListScreen(
-    viewModel: TaskListViewModel
-) {
-    val coroutineScope = rememberCoroutineScope()
-    var isLoggedIn by remember { mutableStateOf(viewModel.auth().isLoggedIn()) }
-    var tasks by remember { mutableStateOf<List<TaskEntity>>(emptyList()) }
+fun TaskListScreen(viewModel: TaskListViewModel) {
+    val isLoggedIn by viewModel.isLoggedIn.collectAsState()
+    val tasks by viewModel.taskList.collectAsState()
+    val syncing by viewModel.syncing.collectAsState()
+    val error by viewModel.error.collectAsState()
     var showCreateDialog by remember { mutableStateOf(false) }
-    var isRefreshing by remember { mutableStateOf(false) }
 
-    // Collect tasks from the DB when logged in
-    LaunchedEffect(isLoggedIn) {
-        if (isLoggedIn) {
-            val ownerId = viewModel.getUserId() ?: ""
-            viewModel.taskDao().getAll(ownerId).collect { taskList ->
-                tasks = taskList
+    if (!isLoggedIn) {
+        LoginForm(
+            error = error,
+            onSubmit = { email, password, register -> viewModel.login(email, password, register) },
+        )
+        return
+    }
+
+    Scaffold(
+        topBar = {
+            TopAppBar(
+                title = { Text("Taskly") },
+                actions = {
+                    if (syncing) {
+                        CircularProgressIndicator(modifier = Modifier.size(24.dp).padding(end = 4.dp))
+                    } else {
+                        TextButton(onClick = { viewModel.refresh() }) { Text("Sync") }
+                    }
+                },
+            )
+        },
+        floatingActionButton = {
+            FloatingActionButton(onClick = { showCreateDialog = true }) {
+                Icon(Icons.Default.Add, contentDescription = "Add task")
+            }
+        }
+    ) { padding ->
+        if (tasks.isEmpty()) {
+            Box(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("No tasks yet", style = MaterialTheme.typography.bodyLarge)
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier.fillMaxSize().padding(padding),
+                contentPadding = PaddingValues(8.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                items(tasks, key = { it.id }) { task ->
+                    TaskRow(
+                        task = task,
+                        onToggleComplete = { completed -> viewModel.setCompleted(task, completed) }
+                    )
+                }
             }
         }
     }
 
-    if (!isLoggedIn) {
-        LoginForm(
-            authRepository = viewModel.auth(),
-            onLoginSuccess = { isLoggedIn = true }
+    if (showCreateDialog) {
+        CreateTaskDialog(
+            onDismiss = { showCreateDialog = false },
+            onConfirm = { name ->
+                viewModel.createTask(name)
+                showCreateDialog = false
+            }
         )
-    } else {
-        Scaffold(
-            topBar = {
-                TopAppBar(title = { Text("Taskly") })
-            },
-            floatingActionButton = {
-                FloatingActionButton(onClick = { showCreateDialog = true }) {
-                    Icon(Icons.Default.Add, contentDescription = "Add task")
-                }
-            }
-        ) { padding ->
-            if (tasks.isEmpty()) {
-                Box(
-                    modifier = Modifier.fillMaxSize().padding(padding),
-                    contentAlignment = Alignment.Center
-                ) {
-                    if (isRefreshing) {
-                        CircularProgressIndicator()
-                    } else {
-                        Text("No tasks yet", style = MaterialTheme.typography.bodyLarge)
-                    }
-                }
-            } else {
-                LazyColumn(
-                    modifier = Modifier.fillMaxSize().padding(padding),
-                    contentPadding = PaddingValues(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
-                    items(tasks, key = { it.id }) { task ->
-                        TaskRow(
-                            task = task,
-                            onToggleComplete = { completed ->
-                                coroutineScope.launch {
-                                    val userId = viewModel.getUserId() ?: return@launch
-                                    viewModel.repository().toggleComplete(task, userId)
-                                }
-                            }
-                        )
-                    }
-                }
-            }
-        }
-
-        // Refresh on demand — process queue + pull deltas
-        LaunchedEffect(isRefreshing) {
-            if (isRefreshing) {
-                viewModel.syncNow()
-                isRefreshing = false
-            }
-        }
-
-        if (showCreateDialog) {
-            CreateTaskDialog(
-                onDismiss = { showCreateDialog = false },
-                onConfirm = { name ->
-                    coroutineScope.launch {
-                        val ownerId = viewModel.getUserId() ?: return@launch
-                        viewModel.repository().createTask(ownerId, name.trim())
-                        showCreateDialog = false
-                    }
-                }
-            )
-        }
     }
 }
 
 @Composable
 private fun LoginForm(
-    authRepository: AuthRepository,
-    onLoginSuccess: () -> Unit
+    error: String?,
+    onSubmit: (email: String, password: String, register: Boolean) -> Unit,
 ) {
     var email by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var isRegister by remember { mutableStateOf(false) }
-    var error by remember { mutableStateOf<String?>(null) }
-    val coroutineScope = rememberCoroutineScope()
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -174,20 +149,7 @@ private fun LoginForm(
             Spacer(modifier = Modifier.height(24.dp))
 
             Button(
-                onClick = {
-                    coroutineScope.launch {
-                        error = null
-                        val result = if (isRegister) {
-                            authRepository.register(email.trim(), password)
-                        } else {
-                            authRepository.login(email.trim(), password)
-                        }
-                        result.fold(
-                            onSuccess = { onLoginSuccess() },
-                            onFailure = { e -> error = e.message ?: "Authentication failed" }
-                        )
-                    }
-                },
+                onClick = { onSubmit(email.trim(), password, isRegister) },
                 modifier = Modifier.fillMaxWidth(),
                 enabled = email.isNotBlank() && password.isNotBlank()
             ) {
@@ -196,7 +158,7 @@ private fun LoginForm(
 
             Spacer(modifier = Modifier.height(12.dp))
 
-            TextButton(onClick = { isRegister = !isRegister; error = null }) {
+            TextButton(onClick = { isRegister = !isRegister }) {
                 Text(
                     if (isRegister) "Already have an account? Login"
                     else "Don't have an account? Register"

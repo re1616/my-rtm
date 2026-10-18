@@ -20,7 +20,8 @@ for path in logs:
     except FileNotFoundError:
         continue
     lines = text.splitlines()
-    compile_errors = [l for l in lines if l.startswith("e: ")]
+    # Kotlin ("e: ...") and javac/kapt ("...: error: ...") compiler errors
+    compile_errors = [l for l in lines if l.startswith("e: ") or ": error:" in l]
     if compile_errors:
         annotate(f"Kotlin compile errors ({path})", "\n".join(compile_errors[:80]))
     if path.endswith("server-run.log"):
