@@ -62,13 +62,14 @@ const TaskRow: React.FC<TaskRowProps> = ({
   return (
     <div
       className={cls}
-      role="option"
-      aria-selected={isSelected}
+      role="listitem"
+      tabIndex={isCursor ? 0 : -1}
       aria-current={isCursor ? 'true' : undefined}
       data-task-id={task.id}
       id={`task-${task.id}`}
       onClick={(e) => onClick(task.id, e)}
     >
+      {isSelected && <span className="visually-hidden">Выделена. </span>}
       <button
         type="button"
         className={`task-row-check${done ? ' task-row-check--done' : ''}`}

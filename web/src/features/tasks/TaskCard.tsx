@@ -215,7 +215,8 @@ const TaskCard: React.FC = () => {
         </dd>
 
         <dt>Приоритет</dt>
-        <dd className="card-priority" role="group" aria-label="Приоритет">
+        <dd>
+          <span className="card-priority" role="group" aria-label="Приоритет">
           {([1, 2, 3, null] as const).map((p) => (
             <button
               key={String(p)}
@@ -227,6 +228,7 @@ const TaskCard: React.FC = () => {
               {p ? `!${p}` : 'нет'}
             </button>
           ))}
+          </span>
         </dd>
 
         <dt>Срок</dt>

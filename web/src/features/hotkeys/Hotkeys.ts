@@ -67,7 +67,8 @@ function moveCursor(delta: 1 | -1): void {
   s.setCursor(ids[next]);
   // Keep the card on the task under the pointer when the card is open
   if (s.openTaskId) s.openTask(ids[next]);
-  document.getElementById(`task-${ids[next]}`)?.scrollIntoView?.({ block: 'nearest' });
+  // Real focus on the row: screen readers announce the task, the browser scrolls to it
+  requestAnimationFrame(() => document.getElementById(`task-${ids[next]}`)?.focus());
 }
 
 function needTargets(open: () => void): void {

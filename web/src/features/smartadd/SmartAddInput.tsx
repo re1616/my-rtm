@@ -73,7 +73,7 @@ const SmartAddInput: React.FC<SmartAddProps> = ({ onSubmit, placeholder, label, 
   const [caret, setCaret] = useState(0);
   const [focused, setFocused] = useState(false);
   const [active, setActive] = useState(0);
-  const [busy, setBusy] = useState(false);
+  const [, setBusy] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
 
@@ -121,14 +121,19 @@ const SmartAddInput: React.FC<SmartAddProps> = ({ onSubmit, placeholder, label, 
   }
 
   async function submit() {
-    if (busy) return;
     const result = parsed;
     if (!result || !result.name.trim()) return;
+    // Clear at once: the next task may be typed while this one is being saved
+    const typed = input;
+    setInput('');
+    setCaret(0);
     setBusy(true);
     try {
       await onSubmit(result);
-      setInput('');
-      setCaret(0);
+    } catch (e) {
+      // Nothing saved: give the text back unless the user already typed something new
+      setInput((current) => current || typed);
+      throw e;
     } finally {
       setBusy(false);
       // Scenario 1: the field keeps the focus for the next task

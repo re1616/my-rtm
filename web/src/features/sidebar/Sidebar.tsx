@@ -36,7 +36,7 @@ const Item: React.FC<{ view: AppView; current: AppView; icon: string; label: str
       <span className="sidebar-item-icon" aria-hidden="true">{icon}</span>
       <span className="sidebar-item-label">{label}</span>
       {count !== undefined && count > 0 && (
-        <span className="sidebar-item-count" aria-label={`${count} задач`}>
+        <span className="sidebar-item-count" aria-label={`, задач: ${count}`}>
           {count}
         </span>
       )}

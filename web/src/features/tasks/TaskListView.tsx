@@ -159,13 +159,7 @@ const TaskListView: React.FC = () => {
           {canAdd && <p className="task-list-empty-hint">Нажмите T, чтобы добавить задачу. ? — все горячие клавиши.</p>}
         </div>
       ) : (
-        <div
-          className="task-list-rows"
-          role="listbox"
-          aria-label={`Задачи: ${title}`}
-          aria-multiselectable="true"
-          aria-activedescendant={cursorId ? `task-${cursorId}` : undefined}
-        >
+        <div className="task-list-rows" role="list" aria-label={`Задачи: ${title}`}>
           {tasks.map((task) => (
             <TaskRow
               key={task.id}

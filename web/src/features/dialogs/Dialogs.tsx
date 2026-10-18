@@ -148,38 +148,46 @@ const TextPrompt: React.FC<{ kind: DialogKind; onClose: () => void }> = ({ kind,
     return null;
   }, [kind, value]);
 
+  // Validation is synchronous; the dialog closes at once and the change is applied after,
+  // so the next key press already goes to the list.
   async function submit() {
     const words = value.split(/[\s,]+/).filter(Boolean);
+    const ids = targetIds();
     switch (kind) {
       case 'due':
-        if (!(await setDueTargets(value))) return setError('Не удалось распознать дату');
-        break;
+        if (!parseDue(value)) return setError('Не удалось распознать дату');
+        onClose();
+        await setDueTargets(value, ids);
+        return;
       case 'repeat':
-        if (!(await setRepeatTargets(value))) return setError('Не удалось распознать повтор');
-        break;
+        if (!parseRepeat(value)) return setError('Не удалось распознать повтор');
+        onClose();
+        await setRepeatTargets(value, ids);
+        return;
       case 'tags':
-        await addTagsTargets(words);
-        break;
+        onClose();
+        await addTagsTargets(words, ids);
+        return;
       case 'untag':
-        await removeTagsTargets(words);
-        break;
-      case 'rename': {
-        const id = targetIds()[0];
-        if (id) await renameTask(id, value);
-        break;
-      }
+        onClose();
+        await removeTagsTargets(words, ids);
+        return;
+      case 'rename':
+        onClose();
+        if (ids[0]) await renameTask(ids[0], value);
+        return;
       case 'smart-save': {
         const view = store.getState().currentView;
         if (view.kind !== 'search' || !value.trim()) return setError('Введите название');
         const problem = checkQuery(view.query);
         if (problem) return setError(problem.message);
+        onClose();
         const list = await createSmartList(value.trim(), view.query);
         await refreshData();
         store.getState().setCurrentView({ kind: 'smart', listId: list.id });
-        break;
+        return;
       }
     }
-    onClose();
   }
 
   return (
