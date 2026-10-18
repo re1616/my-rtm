@@ -125,6 +125,23 @@ class IntegrationTestSync {
         assertEquals(HttpStatusCode.Unauthorized, client.get("/v1/tasks") { bearerAuth("garbage") }.status)
     }
 
+    @Test
+    fun `rate limit returns 429 with Retry-After`() = testApplication {
+        application { moduleForTest() }
+        val u = client.register("ratelimit")
+        RateLimiter.init(RateLimitConfig(tokensPerSecond = 1, burstSize = 3, authTokensPerSecond = 1000.0, authBurstSize = 10000))
+        try {
+            val statuses = (1..6).map { client.get("/v1/tasks") { bearerAuth(u.token) } }
+            assertTrue(statuses.take(3).all { it.status == HttpStatusCode.OK }, statuses.map { it.status }.toString())
+            val limited = statuses.last()
+            assertEquals(HttpStatusCode.TooManyRequests, limited.status)
+            assertNotNull(limited.headers[HttpHeaders.RetryAfter])
+            assertEquals(HttpStatusCode.OK, client.get("/health").status, "health is never limited")
+        } finally {
+            RateLimiter.init(Config.rateLimit)
+        }
+    }
+
     // ---------------------------------------------------------------- sync security
 
     @Test

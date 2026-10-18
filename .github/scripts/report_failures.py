@@ -27,6 +27,12 @@ for path in logs:
         errs = [l for l in lines if any(k in l for k in ("Exception", "ERROR", "Caused by", "\tat com.taskly"))]
         if errs:
             annotate("Server runtime errors", "\n".join(errs[:120]))
+    if "vitest" in path:
+        import re
+        clean = re.sub(r"\x1b\[[0-9;]*m", "", text)
+        keep = [l for l in clean.splitlines()
+                if any(k in l for k in ("FAIL", "Error", "×", "→", "expected", "Expected", "Received", "+ ", "- ", "❯ src"))]
+        annotate(f"Vitest failures ({path})", "\n".join(keep[:200]) or clean[-15000:])
     if "FAILURE:" in text:
         idx = text.index("FAILURE:")
         annotate(f"Gradle failure ({path})", text[idx:idx + 4000])

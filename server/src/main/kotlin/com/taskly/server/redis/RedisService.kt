@@ -12,6 +12,9 @@ import redis.clients.jedis.JedisPubSub
 object RedisService {
     private var pool: JedisPool? = null
 
+    @Volatile
+    private var bucketSha: String? = null
+
     fun init(config: RedisConfig) {
         val poolConfig = JedisPoolConfig().apply {
             maxTotal = 32
@@ -89,12 +92,17 @@ object RedisService {
             end
         """.trimIndent()
 
-        val sha = getPool().resource.use { jedis ->
-            jedis.scriptLoad(luaScript)
-        }
-
+        val args = listOf(tokens.toString(), refillRate.toString(), capacity.toString(), nowSeconds.toString())
         return getPool().resource.use { jedis ->
-            jedis.evalsha(sha, listOf(bucketKey), listOf(tokens.toString(), refillRate.toString(), capacity.toString(), nowSeconds.toString())) as Long == 1L
+            // The script is loaded once and then called by SHA; reloaded if Redis was flushed
+            val sha = bucketSha ?: jedis.scriptLoad(luaScript).also { bucketSha = it }
+            val result = try {
+                jedis.evalsha(sha, listOf(bucketKey), args)
+            } catch (e: redis.clients.jedis.exceptions.JedisNoScriptException) {
+                bucketSha = jedis.scriptLoad(luaScript)
+                jedis.evalsha(bucketSha, listOf(bucketKey), args)
+            }
+            result as Long == 1L
         }
     }
 

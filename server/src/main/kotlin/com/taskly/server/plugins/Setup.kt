@@ -19,6 +19,7 @@ import com.taskly.server.tags.tagRoutes
 import com.taskly.server.sync.syncRoutes
 import com.taskly.server.websocket.WebSocketService
 import com.taskly.server.errors.*
+import com.taskly.server.ratelimit.RateLimitPlugin
 import io.ktor.server.plugins.BadRequestException
 
 private val logger = LoggerFactory.getLogger("Setup")
@@ -62,6 +63,7 @@ fun Application.configureStatusPages() {
 }
 
 fun Application.configureRouting() {
+    install(RateLimitPlugin)
     install(WebSockets)
     routing {
         get("/health") {

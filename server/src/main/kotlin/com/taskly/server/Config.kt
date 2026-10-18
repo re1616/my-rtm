@@ -29,7 +29,10 @@ data class SyncConfig(
 
 data class RateLimitConfig(
     val tokensPerSecond: Int,
-    val burstSize: Int
+    val burstSize: Int,
+    /** Per-IP bucket for /v1/auth/* (password guessing). */
+    val authTokensPerSecond: Double = 0.2,
+    val authBurstSize: Int = 10,
 )
 
 // Loader
@@ -69,7 +72,9 @@ object Config {
 
     val rateLimit = RateLimitConfig(
         tokensPerSecond = config.getInt("rateLimit.tokensPerSecond"),
-        burstSize = config.getInt("rateLimit.burstSize")
+        burstSize = config.getInt("rateLimit.burstSize"),
+        authTokensPerSecond = config.getDouble("rateLimit.authTokensPerSecond"),
+        authBurstSize = config.getInt("rateLimit.authBurstSize"),
     )
 }
 /**
