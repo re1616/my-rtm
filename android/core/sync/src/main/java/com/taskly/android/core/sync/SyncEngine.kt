@@ -1,6 +1,7 @@
 package com.taskly.android.core.sync
 
 import android.content.Context
+import android.content.SharedPreferences
 import androidx.work.*
 import com.taskly.android.core.database.ListEntity
 import com.taskly.android.core.database.SyncOperationEntity
@@ -23,6 +24,15 @@ object SyncEngine {
     }
 
     private fun apiClient(): TasklyApiClient = TasklyApiClient.create()
+
+    /** Same as [processQueue] but with an injectable client (for testing with MockEngine). */
+    suspend fun processQueueWithClient(
+        db: TasklyDatabase,
+        accessToken: String,
+        client: TasklyApiClient
+    ): Int {
+        return processQueueImpl(db, accessToken, client)
+    }
 
     /** Write a local mutation + queue the operation to push to the server. */
     suspend fun enqueueOperation(
@@ -60,6 +70,15 @@ object SyncEngine {
 
     /** Push all pending ops to the server. Removes acknowledged ops, marks the rest failed. Returns processed count. */
     suspend fun processQueue(db: TasklyDatabase, accessToken: String): Int {
+        return processQueueImpl(db, accessToken)
+    }
+
+    /** Internal impl with optional client override. */
+    private suspend fun processQueueImpl(
+        db: TasklyDatabase,
+        accessToken: String,
+        client: TasklyApiClient = apiClient()
+    ): Int {
         val pending = db.syncQueueDao().getPending()
         if (pending.isEmpty()) return 0
 
@@ -76,7 +95,7 @@ object SyncEngine {
 
         var processed = 0
         try {
-            val results = apiClient().syncPush(ops, accessToken)
+            val results = client.syncPush(ops, accessToken)
             for (r in results) {
                 if (r.status == "ok") {
                     db.syncQueueDao().remove(r.opId)
@@ -89,7 +108,7 @@ object SyncEngine {
             // Network / server unavailable: keep the queue as pending, schedule retry.
             pending.forEach { op ->
                 db.syncQueueDao().markFailed(
-                    op.opId, "failed",
+                    op.opId, "pending",
                     e.message ?: "Exception: ${e::class.simpleName}"
                 )
             }
@@ -191,6 +210,14 @@ object SyncEngine {
             )
     }
 
+    /**
+     * Idempotent: call once at app startup to schedule periodic sync.
+     * Safe to call multiple times — WorkManager KEEP policy prevents duplicates.
+     */
+    fun initOnAppStart(context: Context) {
+        enqueuePeriodicSync(context)
+    }
+
     // ── JSON helpers ─────────────────────────────────────────────
 
     private fun parseTaskFromJson(data: JsonObject): TaskEntity? = try {
@@ -243,7 +270,9 @@ class SyncWorker(
     override suspend fun doWork(): Result {
         return try {
             val db = TasklyDatabase.getInstance(applicationContext)
-            val accessToken = inputData.getString("access_token") ?: return Result.failure()
+            // Read access token from SharedPreferences (persisted by AuthRepository)
+            val prefs = applicationContext.getSharedPreferences("taskly_auth", android.content.Context.MODE_PRIVATE)
+            val accessToken = prefs.getString("auth_access_token", null) ?: return Result.retry()
             val processed = SyncEngine.processQueue(db, accessToken)
             if (processed >= 0) Result.success() else Result.retry()
         } catch (_: Exception) {

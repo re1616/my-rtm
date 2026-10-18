@@ -67,6 +67,11 @@ dependencies {
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.datastore.preferences)
 
+    // Hilt deps — ready for activation when Kotlin 2.4+ is compatible
+    // implementation(libs.hilt.android)
+    // kapt(libs.hilt.compiler)
+    // implementation(libs.hilt.navigation.compose)
+
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)
 

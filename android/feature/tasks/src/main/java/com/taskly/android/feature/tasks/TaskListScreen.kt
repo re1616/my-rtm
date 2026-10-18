@@ -11,23 +11,15 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.taskly.android.core.database.TaskEntity
-import com.taskly.android.core.database.TasklyDatabase
-import com.taskly.android.core.sync.SyncEngine
-import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
-import kotlinx.datetime.Clock
-
-private val json = kotlinx.serialization.json.Json { ignoreUnknownKeys = true; isLenient = true }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun TaskListScreen(
-    database: TasklyDatabase,
-    authRepository: AuthRepository,
-    syncEngine: SyncEngine
+    viewModel: TaskListViewModel
 ) {
     val coroutineScope = rememberCoroutineScope()
-    var isLoggedIn by remember { mutableStateOf(authRepository.isLoggedIn()) }
+    var isLoggedIn by remember { mutableStateOf(viewModel.auth().isLoggedIn()) }
     var tasks by remember { mutableStateOf<List<TaskEntity>>(emptyList()) }
     var showCreateDialog by remember { mutableStateOf(false) }
     var isRefreshing by remember { mutableStateOf(false) }
@@ -35,8 +27,8 @@ fun TaskListScreen(
     // Collect tasks from the DB when logged in
     LaunchedEffect(isLoggedIn) {
         if (isLoggedIn) {
-            val ownerId = authRepository.getUserId() ?: ""
-            database.taskDao().getAll(ownerId).collect { taskList ->
+            val ownerId = viewModel.getUserId() ?: ""
+            viewModel.taskDao().getAll(ownerId).collect { taskList ->
                 tasks = taskList
             }
         }
@@ -44,7 +36,7 @@ fun TaskListScreen(
 
     if (!isLoggedIn) {
         LoginForm(
-            authRepository = authRepository,
+            authRepository = viewModel.auth(),
             onLoginSuccess = { isLoggedIn = true }
         )
     } else {
@@ -80,26 +72,8 @@ fun TaskListScreen(
                             task = task,
                             onToggleComplete = { completed ->
                                 coroutineScope.launch {
-                                    val now = Clock.System.now().toString()
-                                    val updatedTask = task.copy(
-                                        completedAt = if (completed) now else null,
-                                        updatedAt = now,
-                                        version = task.version + 1
-                                    )
-                                    database.taskDao().upsert(updatedTask)
-                                    val userId = authRepository.getUserId() ?: return@launch
-                                    syncEngine.enqueueOperation(
-                                        db = database,
-                                        entityType = "task",
-                                        entityId = task.id,
-                                        operationType = "upsert",
-                                        fields = mapOf(
-                                            "completedAt" to updatedTask.completedAt,
-                                            "updatedAt" to updatedTask.updatedAt,
-                                            "version" to updatedTask.version
-                                        ),
-                                        userId = userId
-                                    )
+                                    val userId = viewModel.getUserId() ?: return@launch
+                                    viewModel.repository().toggleComplete(task, userId)
                                 }
                             }
                         )
@@ -108,15 +82,10 @@ fun TaskListScreen(
             }
         }
 
-        // Pull-to-refresh — manual trigger via a refresh button or gesture area
-        // Simple approach: process queue + pull deltas on a button in the top bar area
-        // For real pull-to-refresh, add SwipeRefresh or Modifier.pullRefresh; keeping it simple here
+        // Refresh on demand — process queue + pull deltas
         LaunchedEffect(isRefreshing) {
             if (isRefreshing) {
-                val token = authRepository.getAccessToken() ?: return@LaunchedEffect
-                val userId = authRepository.getUserId() ?: return@LaunchedEffect
-                syncEngine.processQueue(database, token)
-                syncEngine.pullDeltas(database, userId, 0L, token)
+                viewModel.syncNow()
                 isRefreshing = false
             }
         }
@@ -126,34 +95,8 @@ fun TaskListScreen(
                 onDismiss = { showCreateDialog = false },
                 onConfirm = { name ->
                     coroutineScope.launch {
-                        val now = Clock.System.now().toString()
-                        val taskId = java.util.UUID.randomUUID().toString()
-                        val ownerId = authRepository.getUserId() ?: ""
-                        val task = TaskEntity(
-                            id = taskId,
-                            ownerId = ownerId,
-                            listId = "default",
-                            name = name,
-                            version = 1,
-                            createdAt = now,
-                            updatedAt = now
-                        )
-                        database.taskDao().upsert(task)
-                        val userId = authRepository.getUserId() ?: return@launch
-                        syncEngine.enqueueOperation(
-                            db = database,
-                            entityType = "task",
-                            entityId = taskId,
-                            operationType = "upsert",
-                            fields = mapOf(
-                                "id" to taskId,
-                                "name" to name,
-                                "listId" to "default",
-                                "createdAt" to now,
-                                "updatedAt" to now
-                            ),
-                            userId = userId
-                        )
+                        val ownerId = viewModel.getUserId() ?: return@launch
+                        viewModel.repository().createTask(ownerId, name.trim())
                         showCreateDialog = false
                     }
                 }

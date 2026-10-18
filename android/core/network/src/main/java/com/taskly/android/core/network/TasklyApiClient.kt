@@ -93,23 +93,24 @@ data class SyncChangesResponseDto(
 
 // ── Client ──
 
-class TasklyApiClient(private val httpClient: HttpClient) {
+/** Socket-like HTTP client wrapper. Made open so tests can inject a fake. */
+open class TasklyApiClient(private val httpClient: HttpClient) {
 
-    suspend fun register(email: String, password: String): AuthResult {
+    open suspend fun register(email: String, password: String): AuthResult {
         val response = httpClient.post("/v1/auth/register") {
             setBody(RegisterRequest(email, password))
         }
         return response.body()
     }
 
-    suspend fun login(email: String, password: String): AuthResult {
+    open suspend fun login(email: String, password: String): AuthResult {
         val response = httpClient.post("/v1/auth/login") {
             setBody(LoginRequest(email, password))
         }
         return response.body()
     }
 
-    suspend fun refreshToken(token: String): AuthResult {
+    open suspend fun refreshToken(token: String): AuthResult {
         val response = httpClient.post("/v1/auth/refresh") {
             setBody(RefreshTokenRequest(token))
         }
@@ -117,7 +118,7 @@ class TasklyApiClient(private val httpClient: HttpClient) {
     }
 
     /** Push sync operations to the server. Returns per-op results. */
-    suspend fun syncPush(ops: List<SyncOpDto>, accessToken: String): List<SyncResultDto> {
+    open suspend fun syncPush(ops: List<SyncOpDto>, accessToken: String): List<SyncResultDto> {
         val response = httpClient.post("/v1/sync") {
             bearerAuth(accessToken)
             setBody(SyncRequestDto(ops))
@@ -127,7 +128,7 @@ class TasklyApiClient(private val httpClient: HttpClient) {
     }
 
     /** Pull changes since [afterSeq] in [scope]. */
-    suspend fun syncDelta(
+    open suspend fun syncDelta(
         scope: String,
         afterSeq: Long? = null,
         limit: Int = 100,
