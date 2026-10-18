@@ -1,6 +1,7 @@
 package com.taskly.android.core.network
 
 import io.ktor.client.*
+import io.ktor.client.engine.cio.*
 import io.ktor.client.call.*
 import io.ktor.client.plugins.*
 import io.ktor.client.plugins.contentnegotiation.*
@@ -144,16 +145,16 @@ open class TasklyApiClient(private val httpClient: HttpClient) {
     }
 
     companion object {
-        private const val DEFAULT_BASE_URL = "http://10.0.2.2:8080"
-
         val json = Json {
             ignoreUnknownKeys = true
             isLenient = true
             encodeDefaults = false
         }
 
-        fun create(baseUrl: String = DEFAULT_BASE_URL): TasklyApiClient {
-            val httpClient = HttpClient {
+        fun create(baseUrl: String): TasklyApiClient {
+            val httpClient = HttpClient(CIO) {
+                // 4xx/5xx become exceptions instead of being decoded as data
+                expectSuccess = true
                 install(ContentNegotiation) {
                     json(json)
                 }

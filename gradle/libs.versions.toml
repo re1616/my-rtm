@@ -23,7 +23,7 @@ hocon = "1.12.0"
 agp = "8.5.2"
 ksp = "2.3.10"
 room = "2.8.5"
-hilt = "2.53.1"
+hilt = "2.58"
 robolectric = "4.14.1"
 androidx-test-core = "1.6.1"
 composeBom = "2024.12.01"
@@ -88,6 +88,7 @@ room-testing = { module = "androidx.room:room-testing", version.ref = "room" }
 hilt-android = { module = "com.google.dagger:hilt-android", version.ref = "hilt" }
 hilt-compiler = { module = "com.google.dagger:hilt-compiler", version.ref = "hilt" }
 hilt-work = { module = "com.google.dagger:hilt-android-testing", version.ref = "hilt" }
+kotlin-metadata-jvm = { module = "org.jetbrains.kotlin:kotlin-metadata-jvm", version.ref = "kotlin" }
 compose-bom = { module = "androidx.compose:compose-bom", version.ref = "composeBom" }
 compose-ui = { module = "androidx.compose.ui:ui" }
 compose-ui-graphics = { module = "androidx.compose.ui:ui-graphics" }

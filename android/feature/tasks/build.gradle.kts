@@ -2,6 +2,7 @@ plugins {
     alias(libs.plugins.android.library)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
+    alias(libs.plugins.kotlin.kapt)
 }
 
 android {
@@ -28,6 +29,20 @@ android {
     }
 }
 
+configurations.configureEach {
+    // Annotation processors (Room, Hilt) bundle a kotlin-metadata-jvm that predates Kotlin 2.4;
+    // force the version matching the compiler so they can read 2.4 class metadata.
+    resolutionStrategy.eachDependency {
+        if (requested.group == "org.jetbrains.kotlin" && requested.name == "kotlin-metadata-jvm") {
+            useVersion(libs.versions.kotlin.get())
+        }
+    }
+}
+
+kapt {
+    correctErrorTypes = true
+}
+
 dependencies {
     implementation(project(":shared"))
     implementation(project(":android:core:database"))
@@ -47,6 +62,9 @@ dependencies {
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.room.runtime)
     implementation(libs.room.ktx)
+    implementation(libs.hilt.android)
+    kapt(libs.hilt.compiler)
+    kapt(libs.kotlin.metadata.jvm)
 
     testImplementation(libs.kotlin.test)
 }

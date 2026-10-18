@@ -90,14 +90,12 @@ object AuthService {
             .where(RefreshTokensTable.TOKEN_HASH.eq(tokenHash))
             .fetchOne() ?: throw IllegalArgumentException("Invalid or expired refresh token")
 
-        // SEC-5: replay detection — reused token that was already revoked means theft
+        val userId = record.get(RefreshTokensTable.USER_ID)
+
+        // SEC-5: a revoked token presented again means it was stolen (or replayed) —
+        // revoke the user's whole chain. Done outside a transaction so the revocation sticks.
         if (record.get(RefreshTokensTable.REVOKED)) {
-            // Replay: steal scenario — revoke all tokens for this user
-            val userId = record.get(RefreshTokensTable.USER_ID)
-            ctx.update(RefreshTokensTable.TABLE)
-                .set(RefreshTokensTable.REVOKED, true)
-                .where(RefreshTokensTable.USER_ID.eq(userId))
-                .execute()
+            revokeAll(ctx, userId)
             throw IllegalArgumentException("Refresh token replay detected: all tokens revoked for security")
         }
 
@@ -105,13 +103,17 @@ object AuthService {
             throw IllegalArgumentException("Invalid or expired refresh token")
         }
 
-        val userId = record.get(RefreshTokensTable.USER_ID)
-
-        // Revoke the used token before issuing a new one
-        ctx.update(RefreshTokensTable.TABLE)
+        // Claim the token atomically: only one of two concurrent requests with the same token
+        // can flip revoked=false→true. The loser is a replay, not a second valid rotation.
+        val claimed = ctx.update(RefreshTokensTable.TABLE)
             .set(RefreshTokensTable.REVOKED, true)
             .where(RefreshTokensTable.ID.eq(record.get(RefreshTokensTable.ID)))
+            .and(RefreshTokensTable.REVOKED.isFalse)
             .execute()
+        if (claimed == 0) {
+            revokeAll(ctx, userId)
+            throw IllegalArgumentException("Refresh token replay detected: all tokens revoked for security")
+        }
 
         val accessToken = JWT.create()
             .withSubject("$userId")
@@ -122,6 +124,13 @@ object AuthService {
 
         val newRefreshToken = generateRefreshTokenInTx(ctx, userId)
         return AuthResponse(accessToken, newRefreshToken, "$userId")
+    }
+
+    private fun revokeAll(ctx: org.jooq.DSLContext, userId: UUID) {
+        ctx.update(RefreshTokensTable.TABLE)
+            .set(RefreshTokensTable.REVOKED, true)
+            .where(RefreshTokensTable.USER_ID.eq(userId))
+            .execute()
     }
 
     fun logout(userId: String) {

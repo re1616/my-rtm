@@ -456,26 +456,25 @@ object SyncService {
      * point to entities owned by the same user. Throws ForbiddenException for foreign references.
      */
     private fun validateRefs(tx: DSLContext, ownerId: UUID, fields: Map<String, JsonElement>) {
-        val parentIdStr = (fields["parent_id"] as? JsonPrimitive)?.contentOrNull
-        if (parentIdStr != null) {
-            val parentId = try { UUID.fromString(parentIdStr) } catch (e: Exception) { return }
-            val exists = tx.fetchExists(
+        // Malformed ids are rejected here too, so no reference check is ever skipped
+        fun ref(key: String): UUID? = (fields[key] as? JsonPrimitive)?.contentOrNull?.let {
+            try { UUID.fromString(it) } catch (e: IllegalArgumentException) { throw IllegalArgumentException("Invalid UUID in $key: $it") }
+        }
+        ref("parent_id")?.let { parentId ->
+            val owned = tx.fetchExists(
                 tx.selectOne().from(TasksTable.TABLE)
                     .where(TasksTable.ID.eq(parentId))
                     .and(TasksTable.OWNER_ID.eq(ownerId))
             )
-            if (!exists) throw ForbiddenException("Reference parent_id=$parentId does not belong to the current scope")
+            if (!owned) throw ForbiddenException("Reference parent_id=$parentId does not belong to the current scope")
         }
-
-        val locationIdStr = (fields["location_id"] as? JsonPrimitive)?.contentOrNull
-        if (locationIdStr != null) {
-            val locationId = try { UUID.fromString(locationIdStr) } catch (e: Exception) { return }
-            val exists = tx.fetchExists(
+        ref("location_id")?.let { locationId ->
+            val owned = tx.fetchExists(
                 tx.selectOne().from(LocationsTable.TABLE)
                     .where(LocationsTable.ID.eq(locationId))
                     .and(LocationsTable.OWNER_ID.eq(ownerId))
             )
-            if (!exists) throw ForbiddenException("Reference location_id=$locationId does not belong to the current scope")
+            if (!owned) throw ForbiddenException("Reference location_id=$locationId does not belong to the current scope")
         }
     }
 

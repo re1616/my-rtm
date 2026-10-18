@@ -1,8 +1,17 @@
 package com.taskly.android.core.sync
 
 import android.content.Context
-import android.content.SharedPreferences
-import androidx.work.*
+import androidx.room.withTransaction
+import androidx.work.BackoffPolicy
+import androidx.work.Constraints
+import androidx.work.CoroutineWorker
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.ExistingWorkPolicy
+import androidx.work.NetworkType
+import androidx.work.OneTimeWorkRequestBuilder
+import androidx.work.PeriodicWorkRequestBuilder
+import androidx.work.WorkManager
+import androidx.work.WorkerParameters
 import com.taskly.android.core.database.ListEntity
 import com.taskly.android.core.database.SyncOperationEntity
 import com.taskly.android.core.database.TaskEntity
@@ -11,74 +20,74 @@ import com.taskly.android.core.network.ChangeEntryDto
 import com.taskly.android.core.network.SyncOpDto
 import com.taskly.android.core.network.TasklyApiClient
 import kotlinx.datetime.Clock
-import kotlinx.serialization.json.*
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.contentOrNull
+import kotlinx.serialization.json.intOrNull
+import kotlinx.serialization.json.jsonObject
 import java.util.UUID
 import java.util.concurrent.TimeUnit
 
-object SyncEngine {
+/** Sync scopes as the server names them (see server ChangeLog.personalScope). */
+object SyncScopes {
+    fun personal(userId: String): String = "user:$userId"
+}
 
-    private val json = Json {
-        ignoreUnknownKeys = true
-        isLenient = true
-        encodeDefaults = false
-    }
+/** Operation types accepted by the server's /v1/sync endpoint for tasks. */
+object TaskOps {
+    const val CREATE = "create"
+    const val UPDATE = "update"
+    const val COMPLETE = "complete"
+    const val UNCOMPLETE = "uncomplete"
+    const val DELETE = "delete"
+}
 
-    private fun apiClient(): TasklyApiClient = TasklyApiClient.create()
-
-    /** Same as [processQueue] but with an injectable client (for testing with MockEngine). */
-    suspend fun processQueueWithClient(
-        db: TasklyDatabase,
-        accessToken: String,
-        client: TasklyApiClient
-    ): Int {
-        return processQueueImpl(db, accessToken, client)
-    }
-
-    /** Write a local mutation + queue the operation to push to the server. */
-    suspend fun enqueueOperation(
-        db: TasklyDatabase,
-        entityType: String,
+/**
+ * Client side of the sync protocol (ARCH §5): local mutations are written to Room together
+ * with a queued operation; [push] sends the queue to `/v1/sync` and drops only acknowledged
+ * ops; [pull] applies the server change log for the user's scope.
+ */
+class SyncEngine(
+    private val db: TasklyDatabase,
+    private val api: TasklyApiClient,
+) {
+    /**
+     * Queues an operation for [entityId]. Must be called inside the same Room transaction as
+     * the local write it describes (see [TaskRepository]).
+     */
+    suspend fun enqueue(
+        userId: String,
+        entity: String,
         entityId: String,
-        operationType: String,
-        fields: Map<String, Any?>,
-        userId: String
+        type: String,
+        fields: JsonObject = JsonObject(emptyMap()),
     ) {
-        val fieldElements = fields.mapValues { (_, v) ->
-            when (v) {
-                null -> JsonNull
-                is String -> JsonPrimitive(v)
-                is Number -> JsonPrimitive(v)
-                is Boolean -> JsonPrimitive(v)
-                else -> JsonPrimitive(v.toString())
-            }
-        }
-
-        val op = SyncOperationEntity(
-            opId = UUID.randomUUID().toString(),
-            entityType = entityType,
-            entityId = entityId,
-            operationType = operationType,
-            scope = userId,
-            fields = JsonObject(fieldElements).toString(),
-            createdAt = Clock.System.now().toString(),
-            retryCount = 0,
-            lastError = null,
-            status = "pending"
+        db.syncQueueDao().insert(
+            SyncOperationEntity(
+                opId = UUID.randomUUID().toString(),
+                entityType = entity,
+                entityId = entityId,
+                operationType = type,
+                scope = SyncScopes.personal(userId),
+                fields = fields.toString(),
+                createdAt = Clock.System.now().toString(),
+                retryCount = 0,
+                lastError = null,
+                status = STATUS_PENDING,
+            )
         )
-        db.syncQueueDao().insert(op)
     }
 
-    /** Push all pending ops to the server. Removes acknowledged ops, marks the rest failed. Returns processed count. */
-    suspend fun processQueue(db: TasklyDatabase, accessToken: String): Int {
-        return processQueueImpl(db, accessToken)
-    }
-
-    /** Internal impl with optional client override. */
-    private suspend fun processQueueImpl(
-        db: TasklyDatabase,
-        accessToken: String,
-        client: TasklyApiClient = apiClient()
-    ): Int {
+    /**
+     * Pushes pending operations in order. Acknowledged ops are removed; ops the server rejected
+     * are marked failed with the server's reason; on a network error the queue stays pending.
+     * Returns the number of acknowledged ops.
+     */
+    suspend fun push(accessToken: String): Int {
         val pending = db.syncQueueDao().getPending()
         if (pending.isEmpty()) return 0
 
@@ -89,192 +98,184 @@ object SyncEngine {
                 entity = op.entityType,
                 entityId = op.entityId,
                 type = op.operationType,
-                fields = runCatching { json.parseToJsonElement(op.fields).jsonObject }.getOrNull()
+                fields = runCatching { json.parseToJsonElement(op.fields).jsonObject }.getOrNull(),
             )
         }
 
-        var processed = 0
-        try {
-            val results = client.syncPush(ops, accessToken)
+        val results = try {
+            api.syncPush(ops, accessToken)
+        } catch (e: Exception) {
+            pending.forEach { db.syncQueueDao().markFailed(it.opId, STATUS_PENDING, e.message ?: e::class.simpleName) }
+            return 0
+        }
+
+        var acknowledged = 0
+        db.withTransaction {
             for (r in results) {
                 if (r.status == "ok") {
                     db.syncQueueDao().remove(r.opId)
-                    processed++
+                    acknowledged++
                 } else {
-                    db.syncQueueDao().markFailed(r.opId, "failed", r.error ?: "status=${r.status}")
+                    db.syncQueueDao().markFailed(r.opId, STATUS_FAILED, r.error ?: "status=${r.status}")
                 }
             }
-        } catch (e: Exception) {
-            // Network / server unavailable: keep the queue as pending, schedule retry.
-            pending.forEach { op ->
-                db.syncQueueDao().markFailed(
-                    op.opId, "pending",
-                    e.message ?: "Exception: ${e::class.simpleName}"
-                )
-            }
         }
-        return processed
+        return acknowledged
     }
 
     /**
-     * Pull change-log entries for [scope] since [afterSeq] and apply them locally.
-     * Returns the number of applied changes.
+     * Pulls the change log of the user's personal scope after [afterSeq] and applies it.
+     * Returns the cursor to pass next time (unchanged when there was nothing new).
      */
-    suspend fun pullDeltas(
-        db: TasklyDatabase,
-        scope: String,
-        afterSeq: Long,
-        accessToken: String
-    ): Int {
-        var applied = 0
-        var cursor: Long? = afterSeq.takeIf { it > 0 }
-        var page: List<ChangeEntryDto>
-
-        do {
-            page = try {
-                apiClient().syncDelta(scope, cursor, limit = 100, accessToken = accessToken).changes
-            } catch (_: Exception) {
-                emptyList() // recoverable on next cycle
-            }
+    suspend fun pull(userId: String, afterSeq: Long, accessToken: String): Long {
+        val scope = SyncScopes.personal(userId)
+        var cursor = afterSeq
+        while (true) {
+            val page = api.syncDelta(scope, cursor.takeIf { it > 0 }, PAGE_SIZE, accessToken).changes
             if (page.isEmpty()) break
-
-            for (entry in page) {
-                applyDelta(db, entry)
-                applied++
-                cursor = entry.seq
+            db.withTransaction {
+                for (entry in page) applyChange(userId, entry)
             }
-        } while (page.size == 100) // full page → there may be more
-
-        return applied
+            cursor = page.last().seq
+            if (page.size < PAGE_SIZE) break
+        }
+        return cursor
     }
 
-    /** Apply a single change-log entry to the local Room database. */
-    private suspend fun applyDelta(db: TasklyDatabase, entry: ChangeEntryDto) {
-        val data = parsePayload(entry.payload) ?: return
+    /** One full cycle: push local changes, then pull remote ones. */
+    suspend fun syncNow(userId: String, accessToken: String, afterSeq: Long): Long {
+        push(accessToken)
+        return pull(userId, afterSeq, accessToken)
+    }
+
+    // ── Applying server changes ──────────────────────────────────
+
+    private suspend fun applyChange(userId: String, entry: ChangeEntryDto) {
+        val data = payloadOf(entry.payload)
+        val now = entry.ts
         when (entry.entity) {
-            "task" -> when (entry.op) {
-                "create", "update" -> {
-                    val task = parseTaskFromJson(data) ?: return
-                    db.taskDao().upsert(task)
-                }
-                "delete" -> {
-                    val deletedAt = data["deletedAt"]?.jsonPrimitive?.contentOrNull
-                    val updatedAt = data["updatedAt"]?.jsonPrimitive?.contentOrNull
-                    if (deletedAt != null && updatedAt != null) {
-                        db.taskDao().softDelete(entry.entityId, deletedAt, updatedAt)
+            "task" -> {
+                val existing = db.taskDao().getById(entry.entityId)
+                when (entry.op) {
+                    "create", "update", "move" -> {
+                        val base = existing ?: TaskEntity(
+                            id = entry.entityId, ownerId = userId, listId = "",
+                            name = "", createdAt = now, updatedAt = now,
+                        )
+                        db.taskDao().upsert(mergeTask(base, data).copy(updatedAt = now))
                     }
+                    "complete" -> existing?.let {
+                        db.taskDao().upsert(it.copy(completedAt = data.str("completed_at") ?: now, updatedAt = now))
+                    }
+                    "uncomplete" -> existing?.let {
+                        db.taskDao().upsert(it.copy(completedAt = null, updatedAt = now))
+                    }
+                    "delete" -> db.taskDao().softDelete(entry.entityId, now, now)
                 }
             }
-            "list" -> when (entry.op) {
-                "create", "update" -> {
-                    val list = parseListFromJson(data) ?: return
-                    db.listDao().upsert(list)
-                }
-                "delete" -> {
-                    val deletedAt = data["deletedAt"]?.jsonPrimitive?.contentOrNull
-                    val updatedAt = data["updatedAt"]?.jsonPrimitive?.contentOrNull
-                    if (deletedAt != null && updatedAt != null) {
-                        db.listDao().softDelete(entry.entityId, deletedAt, updatedAt)
+            "list" -> {
+                val existing = db.listDao().getById(entry.entityId)
+                when (entry.op) {
+                    "create", "update" -> {
+                        val base = existing ?: ListEntity(
+                            id = entry.entityId, ownerId = userId, name = "",
+                            createdAt = now, updatedAt = now,
+                        )
+                        db.listDao().upsert(mergeList(base, data).copy(updatedAt = now))
                     }
+                    "delete" -> db.listDao().softDelete(entry.entityId, now, now)
                 }
             }
         }
     }
 
-    /** Payload arrives either as a raw JSON object or as a JSON string containing the object. */
-    private fun parsePayload(payload: JsonElement?): JsonObject? {
-        if (payload == null || payload == JsonNull) return null
-        return when (payload) {
-            is JsonObject -> payload
-            is JsonPrimitive -> runCatching { json.parseToJsonElement(payload.content).jsonObject }.getOrNull()
-            else -> null
-        }
+    /** Applies only the fields present in a change payload (server keys are snake_case). */
+    private fun mergeTask(t: TaskEntity, d: JsonObject): TaskEntity = t.copy(
+        name = if (d.has("name")) d.str("name") ?: t.name else t.name,
+        listId = if (d.has("list_id", "listId")) d.str("list_id", "listId") ?: t.listId else t.listId,
+        priority = if (d.has("priority")) d.int("priority") else t.priority,
+        dueAt = if (d.has("due_at", "dueAt")) d.str("due_at", "dueAt") else t.dueAt,
+        dueHasTime = if (d.has("due_has_time", "dueHasTime")) d.bool("due_has_time", "dueHasTime") ?: false else t.dueHasTime,
+        startAt = if (d.has("start_at", "startAt")) d.str("start_at", "startAt") else t.startAt,
+        estimateMin = if (d.has("estimate_min", "estimateMin")) d.int("estimate_min", "estimateMin") else t.estimateMin,
+        rrule = if (d.has("rrule")) d.str("rrule") else t.rrule,
+        repeatMode = if (d.has("repeat_mode", "repeatMode")) d.str("repeat_mode", "repeatMode") else t.repeatMode,
+        completedAt = if (d.has("completed_at", "completedAt")) d.str("completed_at", "completedAt") else t.completedAt,
+        url = if (d.has("url")) d.str("url") else t.url,
+    )
+
+    private fun mergeList(l: ListEntity, d: JsonObject): ListEntity = l.copy(
+        name = if (d.has("name")) d.str("name") ?: l.name else l.name,
+        isSmart = if (d.has("is_smart", "isSmart")) d.bool("is_smart", "isSmart") ?: false else l.isSmart,
+        query = if (d.has("query")) d.str("query") else l.query,
+        color = if (d.has("color")) d.str("color") else l.color,
+        archived = if (d.has("archived")) d.bool("archived") ?: false else l.archived,
+        sortOrder = if (d.has("sort_order", "sortOrder")) d.int("sort_order", "sortOrder") ?: 0 else l.sortOrder,
+    )
+
+    /** The server sends the payload as a JSON string; older entries may carry an object. */
+    private fun payloadOf(payload: JsonElement?): JsonObject = when (payload) {
+        is JsonObject -> payload
+        is JsonPrimitive -> payload.contentOrNull
+            ?.let { runCatching { json.parseToJsonElement(it).jsonObject }.getOrNull() }
+            ?: JsonObject(emptyMap())
+        else -> JsonObject(emptyMap())
     }
 
-    /** Schedule periodic sync via WorkManager with exponential backoff. */
-    fun enqueuePeriodicSync(context: Context) {
-        val constraints = Constraints.Builder()
+    private fun JsonObject.has(vararg keys: String) = keys.any { containsKey(it) }
+    private fun JsonObject.first(vararg keys: String): JsonElement? = keys.firstNotNullOfOrNull { this[it] }
+    private fun JsonObject.str(vararg keys: String): String? = (first(*keys) as? JsonPrimitive)?.takeIf { it !is JsonNull }?.contentOrNull
+    private fun JsonObject.int(vararg keys: String): Int? = (first(*keys) as? JsonPrimitive)?.intOrNull
+    private fun JsonObject.bool(vararg keys: String): Boolean? = (first(*keys) as? JsonPrimitive)?.booleanOrNull
+
+    companion object {
+        const val STATUS_PENDING = "pending"
+        const val STATUS_FAILED = "failed"
+        private const val PAGE_SIZE = 100
+        private const val PERIODIC_WORK = "taskly_periodic_sync"
+        private const val ONE_TIME_WORK = "taskly_sync_now"
+
+        private val json = Json { ignoreUnknownKeys = true }
+
+        private val networkConstraint = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
 
-        val syncRequest = PeriodicWorkRequestBuilder<SyncWorker>(15, TimeUnit.MINUTES)
-            .setConstraints(constraints)
-            .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
-            .build()
+        /** Periodic safety-net sync (AND-S4); KEEP makes repeated calls harmless. */
+        fun schedulePeriodic(context: Context) {
+            val request = PeriodicWorkRequestBuilder<SyncWorker>(6, TimeUnit.HOURS)
+                .setConstraints(networkConstraint)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .build()
+            WorkManager.getInstance(context)
+                .enqueueUniquePeriodicWork(PERIODIC_WORK, ExistingPeriodicWorkPolicy.KEEP, request)
+        }
 
-        WorkManager.getInstance(context)
-            .enqueueUniquePeriodicWork(
-                "taskly_periodic_sync",
-                ExistingPeriodicWorkPolicy.KEEP,
-                syncRequest
-            )
+        /** Push as soon as the device is online (AND-S3): runs now, or when the network returns. */
+        fun requestSync(context: Context) {
+            val request = OneTimeWorkRequestBuilder<SyncWorker>()
+                .setConstraints(networkConstraint)
+                .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 10, TimeUnit.SECONDS)
+                .build()
+            WorkManager.getInstance(context)
+                .enqueueUniqueWork(ONE_TIME_WORK, ExistingWorkPolicy.REPLACE, request)
+        }
     }
-
-    /**
-     * Idempotent: call once at app startup to schedule periodic sync.
-     * Safe to call multiple times — WorkManager KEEP policy prevents duplicates.
-     */
-    fun initOnAppStart(context: Context) {
-        enqueuePeriodicSync(context)
-    }
-
-    // ── JSON helpers ─────────────────────────────────────────────
-
-    private fun parseTaskFromJson(data: JsonObject): TaskEntity? = try {
-        TaskEntity(
-            id = data["id"]?.jsonPrimitive?.content ?: return null,
-            ownerId = data["ownerId"]?.jsonPrimitive?.content ?: "",
-            listId = data["listId"]?.jsonPrimitive?.content ?: "",
-            parentId = data["parentId"]?.jsonPrimitive?.contentOrNull,
-            name = data["name"]?.jsonPrimitive?.content ?: "",
-            priority = data["priority"]?.jsonPrimitive?.intOrNull,
-            dueAt = data["dueAt"]?.jsonPrimitive?.contentOrNull,
-            dueHasTime = data["dueHasTime"]?.jsonPrimitive?.boolean ?: false,
-            startAt = data["startAt"]?.jsonPrimitive?.contentOrNull,
-            estimateMin = data["estimateMin"]?.jsonPrimitive?.intOrNull,
-            rrule = data["rrule"]?.jsonPrimitive?.contentOrNull,
-            repeatMode = data["repeatMode"]?.jsonPrimitive?.contentOrNull,
-            completedAt = data["completedAt"]?.jsonPrimitive?.contentOrNull,
-            postponedCount = data["postponedCount"]?.jsonPrimitive?.int ?: 0,
-            url = data["url"]?.jsonPrimitive?.contentOrNull,
-            version = data["version"]?.jsonPrimitive?.long ?: 1,
-            sortOrder = data["sortOrder"]?.jsonPrimitive?.int ?: data["sort_order"]?.jsonPrimitive?.int ?: 0,
-            deletedAt = data["deletedAt"]?.jsonPrimitive?.contentOrNull,
-            createdAt = data["createdAt"]?.jsonPrimitive?.content ?: "",
-            updatedAt = data["updatedAt"]?.jsonPrimitive?.content ?: ""
-        )
-    } catch (_: Exception) { null }
-
-    private fun parseListFromJson(data: JsonObject): ListEntity? = try {
-        ListEntity(
-            id = data["id"]?.jsonPrimitive?.content ?: return null,
-            ownerId = data["ownerId"]?.jsonPrimitive?.content ?: "",
-            name = data["name"]?.jsonPrimitive?.content ?: "",
-            isSmart = data["isSmart"]?.jsonPrimitive?.boolean ?: false,
-            query = data["query"]?.jsonPrimitive?.contentOrNull,
-            color = data["color"]?.jsonPrimitive?.contentOrNull,
-            archived = data["archived"]?.jsonPrimitive?.boolean ?: false,
-            sortOrder = data["sortOrder"]?.jsonPrimitive?.int ?: 0,
-            version = data["version"]?.jsonPrimitive?.long ?: 1,
-            deletedAt = data["deletedAt"]?.jsonPrimitive?.contentOrNull,
-            createdAt = data["createdAt"]?.jsonPrimitive?.content ?: "",
-            updatedAt = data["updatedAt"]?.jsonPrimitive?.content ?: ""
-        )
-    } catch (_: Exception) { null }
 }
 
+/** Background sync. Credentials and cursor come from [SyncSession]. */
 class SyncWorker(
     appContext: Context,
-    workerParams: WorkerParameters
-) : CoroutineWorker(appContext, workerParams) {
+    params: WorkerParameters,
+) : CoroutineWorker(appContext, params) {
     override suspend fun doWork(): Result {
+        val session = SyncSession(applicationContext)
+        val token = session.accessToken ?: return Result.success() // signed out: nothing to sync
+        val userId = session.userId ?: return Result.success()
+        val engine = SyncEngine(TasklyDatabase.getInstance(applicationContext), TasklyApiClient.create(session.baseUrl))
         return try {
-            val db = TasklyDatabase.getInstance(applicationContext)
-            // Read access token from SharedPreferences (persisted by AuthRepository)
-            val prefs = applicationContext.getSharedPreferences("taskly_auth", android.content.Context.MODE_PRIVATE)
-            val accessToken = prefs.getString("auth_access_token", null) ?: return Result.retry()
-            val processed = SyncEngine.processQueue(db, accessToken)
-            if (processed >= 0) Result.success() else Result.retry()
+            session.cursor = engine.syncNow(userId, token, session.cursor)
+            Result.success()
         } catch (_: Exception) {
             Result.retry()
         }
