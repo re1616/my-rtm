@@ -13,7 +13,11 @@ object UsersTable {
     val TABLE: Table<Record> = DSL.table(DSL.name("users"))
     val ID = DSL.field(DSL.name("id"), SQLDataType.UUID.nullable(false).defaultValue(DSL.field("gen_random_uuid()", SQLDataType.UUID)))
     val EMAIL = DSL.field(DSL.name("email"), SQLDataType.CLOB.nullable(false))
-    val PASSWORD_HASH = DSL.field(DSL.name("password_hash"), SQLDataType.CLOB.nullable(false))
+    /** Null for accounts created through Google sign-in that never set a password. */
+    val PASSWORD_HASH = DSL.field(DSL.name("password_hash"), SQLDataType.CLOB.nullable(true))
+    val TOTP_SECRET = DSL.field(DSL.name("totp_secret"), SQLDataType.CLOB.nullable(true))
+    val TOTP_ENABLED = DSL.field(DSL.name("totp_enabled"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.inline(false)))
+    val GOOGLE_SUB = DSL.field(DSL.name("google_sub"), SQLDataType.CLOB.nullable(true))
     val TZ = DSL.field(DSL.name("tz"), SQLDataType.CLOB.nullable(false).defaultValue(DSL.inline("Europe/Moscow")))
     val LOCALE = DSL.field(DSL.name("locale"), SQLDataType.CLOB.nullable(false).defaultValue(DSL.inline("ru")))
     val PLAN = DSL.field(DSL.name("plan"), SQLDataType.CLOB.nullable(false).defaultValue(DSL.inline("free")))
@@ -135,6 +139,15 @@ object OutboxTable {
     val PAYLOAD = DSL.field(DSL.name("payload"), SQLDataType.JSONB.nullable(false).defaultValue(DSL.inline("{}", SQLDataType.JSONB)))
     val CREATED_AT = DSL.field(DSL.name("created_at"), SQLDataType.TIMESTAMPWITHTIMEZONE.nullable(false).defaultValue(DSL.function("now", SQLDataType.TIMESTAMPWITHTIMEZONE)))
     val SENT_AT = DSL.field(DSL.name("sent_at"), SQLDataType.TIMESTAMPWITHTIMEZONE)
+}
+
+object PasswordResetTokensTable {
+    val TABLE: Table<Record> = DSL.table(DSL.name("password_reset_tokens"))
+    val ID = DSL.field(DSL.name("id"), SQLDataType.UUID.nullable(false).defaultValue(DSL.field("gen_random_uuid()", SQLDataType.UUID)))
+    val USER_ID = DSL.field(DSL.name("user_id"), SQLDataType.UUID.nullable(false))
+    val TOKEN_HASH = DSL.field(DSL.name("token_hash"), SQLDataType.CLOB.nullable(false))
+    val EXPIRES_AT = DSL.field(DSL.name("expires_at"), SQLDataType.TIMESTAMPWITHTIMEZONE.nullable(false))
+    val USED_AT = DSL.field(DSL.name("used_at"), SQLDataType.TIMESTAMPWITHTIMEZONE.nullable(true))
 }
 
 object RefreshTokensTable {

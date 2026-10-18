@@ -45,6 +45,9 @@ dependencies {
     // Password hashing
     implementation(libs.password4j)
 
+    // Email (password reset, daily digest)
+    implementation(libs.angus.mail)
+
     // Logging
     implementation(libs.logback.classic)
 

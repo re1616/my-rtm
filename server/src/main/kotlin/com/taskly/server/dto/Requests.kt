@@ -18,8 +18,28 @@ data class RegisterRequest(
 @Serializable
 data class LoginRequest(
     val email: String,
-    val password: String
+    val password: String,
+    /** Authenticator code; required when the account has two-factor auth enabled. */
+    val totpCode: String? = null
 )
+
+@Serializable
+data class ForgotPasswordRequest(val email: String)
+
+@Serializable
+data class ResetPasswordRequest(val token: String, val newPassword: String)
+
+@Serializable
+data class TotpCodeRequest(val code: String)
+
+@Serializable
+data class TotpSetupResponse(val secret: String, val otpauthUri: String)
+
+@Serializable
+data class GoogleLoginRequest(val idToken: String, val totpCode: String? = null)
+
+@Serializable
+data class AccountResponse(val userId: String, val email: String, val totpEnabled: Boolean, val hasPassword: Boolean, val googleLinked: Boolean)
 
 @Serializable
 data class AuthResponse(

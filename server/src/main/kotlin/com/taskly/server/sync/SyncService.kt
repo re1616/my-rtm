@@ -87,9 +87,11 @@ object SyncService {
                     results += outcome.result
                     changes += outcome.changes
                 } catch (e: Exception) {
+                    // SYNC-1: final rejections (the same op will never succeed) vs. transient errors
                     val status = when (e) {
                         is ForbiddenException -> "forbidden"
                         is NotFoundException -> "not_found"
+                        is IllegalArgumentException -> "rejected"
                         else -> "error"
                     }
                     logger.warn("Sync op failed: opId={}, entity={}, type={}, error={}", op.opId, op.entity, op.type, e.message)
@@ -285,7 +287,7 @@ object SyncService {
         val accepted = fields - merged.skippedFields.toSet()
         if (accepted.isEmpty()) {
             return Applied(
-                SyncResult(op.opId, "ok", id.toString(), existing.get(TasksTable.VERSION),
+                SyncResult(op.opId, if (merged.skippedFields.isNotEmpty()) "conflict_resolved" else "ok", id.toString(), existing.get(TasksTable.VERSION),
                     error = if (merged.skippedFields.isNotEmpty()) "skipped (newer on server): ${merged.skippedFields.joinToString()}" else null),
                 emptyList(),
             )
@@ -303,7 +305,9 @@ object SyncService {
 
         val change = ChangeLog.append(tx, ownerId, "task", id, op.type, JsonObject(accepted), newVersion)
         val note = if (merged.skippedFields.isNotEmpty()) "skipped (newer on server): ${merged.skippedFields.joinToString()}" else null
-        return Applied(SyncResult(op.opId, "ok", id.toString(), newVersion, error = note), listOf(change))
+        // SYNC-1: some fields lost to newer server values (LWW) — still applied, but reported
+        val status = if (note != null) "conflict_resolved" else "ok"
+        return Applied(SyncResult(op.opId, status, id.toString(), newVersion, error = note), listOf(change))
     }
 
     private fun applyListOp(tx: DSLContext, ownerId: UUID, id: UUID, op: SyncOperation): Applied {

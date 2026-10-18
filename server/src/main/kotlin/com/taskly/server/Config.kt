@@ -36,6 +36,14 @@ data class PushConfig(
     val vapidPrivateKey: String
 )
 
+data class SmtpConfig(
+    val host: String,
+    val port: Int,
+    val user: String,
+    val password: String,
+    val from: String,
+)
+
 data class RateLimitConfig(
     val tokensPerSecond: Int,
     val burstSize: Int,
@@ -84,6 +92,21 @@ object Config {
         vapidPublicKey = config.getString("vapidPublicKey"),
         vapidPrivateKey = config.getString("vapidPrivateKey"),
     ).also { validatePush(it, isDev) }
+
+    val appUrl: String = config.getString("appUrl").trimEnd('/')
+
+    /** Empty = Google sign-in disabled. */
+    val googleClientId: String = config.getString("googleClientId")
+
+    val smtp = SmtpConfig(
+        host = config.getString("smtp.host"),
+        port = config.getInt("smtp.port"),
+        user = config.getString("smtp.user"),
+        password = config.getString("smtp.password"),
+        from = config.getString("smtp.from"),
+    ).also {
+        require(isDev || it.host.isNotBlank()) { "SMTP_HOST must be set outside dev (TASKLY_ENV != dev): password reset and digests need email" }
+    }
 
     val rateLimit = RateLimitConfig(
         tokensPerSecond = config.getInt("rateLimit.tokensPerSecond"),

@@ -20,6 +20,8 @@ fun main() {
     RedisService.init(Config.redis)
     RateLimiter.init(Config.rateLimit)
     AuthService.init(Config.auth)
+    com.taskly.server.email.Mailer.init(Config.smtp)
+    com.taskly.server.auth.GoogleSignIn.init(Config.googleClientId)
 
     embeddedServer(Netty, port = 8080, host = "0.0.0.0") {
         configureSerialization()
