@@ -56,3 +56,11 @@ dependencies {
     testImplementation(libs.kotlinx.coroutines.core)
     testImplementation(libs.ktor.client.mock)
 }
+tasks.withType<Test>().configureEach {
+    // Tests against a live server (real-server E2E, QA-5) depend on that server, not only on
+    // the task inputs: never reuse a cached or up-to-date result when one is configured.
+    if (System.getenv("TASKLY_E2E_URL") != null) {
+        outputs.cacheIf { false }
+        outputs.upToDateWhen { false }
+    }
+}
