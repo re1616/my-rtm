@@ -18,6 +18,7 @@ import com.taskly.server.lists.listRoutes
 import com.taskly.server.tags.tagRoutes
 import com.taskly.server.sync.syncRoutes
 import com.taskly.server.features.featuresRoutes
+import com.taskly.server.account.accountRoutes
 import com.taskly.server.websocket.WebSocketService
 import com.taskly.server.errors.*
 import com.taskly.server.ratelimit.RateLimitPlugin
@@ -81,6 +82,7 @@ fun Application.configureRouting() {
         tagRoutes()
         syncRoutes()
         featuresRoutes()
+        accountRoutes()
 
         webSocket("/v1/ws") {
             WebSocketService.handleSession(this)

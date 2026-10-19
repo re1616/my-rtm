@@ -5,6 +5,7 @@ import store from '../../store/taskStore';
 import { navigate } from '../sidebar/Sidebar';
 import { checkQuery } from '../query/smartQuery';
 import { requestSync } from '../sync/SyncService';
+import { t } from '../../i18n/i18n';
 
 const SYNC_TEXT: Record<string, string> = {
   idle: 'Синхронизировано',
@@ -38,8 +39,8 @@ const TopBar: React.FC = () => {
         <input
           className={`topbar-search-input${problem ? ' topbar-search-input--error' : ''}`}
           type="search"
-          aria-label="Поиск задач"
-          placeholder="Поиск: слово или запрос (tag:работа AND due:today) — клавиша /"
+          aria-label={t('Поиск задач')}
+          placeholder={t('Поиск: слово или запрос (tag:работа AND due:today) — клавиша /')}
           value={text}
           aria-invalid={!!problem}
           title={problem?.message}
@@ -54,12 +55,12 @@ const TopBar: React.FC = () => {
       </form>
       {view.kind === 'search' && (
         <button type="button" className="topbar-btn" onClick={() => store.getState().setDialog('smart-save')}>
-          Сохранить как умный список
+          {t('Сохранить как умный список')}
         </button>
       )}
       {session && (
-        <button type="button" className={`topbar-sync topbar-sync--${syncState}`} onClick={() => requestSync()} title="Синхронизировать сейчас">
-          {SYNC_TEXT[syncState] ?? syncState}
+        <button type="button" className={`topbar-sync topbar-sync--${syncState}`} onClick={() => requestSync()} title={t('Синхронизировать сейчас')}>
+          {t(SYNC_TEXT[syncState] ?? syncState)}
         </button>
       )}
     </header>

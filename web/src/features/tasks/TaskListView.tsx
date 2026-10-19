@@ -12,6 +12,7 @@ import { deleteList, updateList } from '../../entities/taskRepository';
 import { refreshData } from '../app/data';
 import { checkQuery } from '../query/smartQuery';
 import type { SortField } from '../../types';
+import { t } from '../../i18n/i18n';
 
 const SORTS: { field: SortField; label: string }[] = [
   { field: 'createdAt', label: 'Добавлены' },
@@ -45,12 +46,12 @@ const TaskListView: React.FC = () => {
 
   const subtaskStats = useMemo(() => {
     const m = new Map<string, { done: number; total: number }>();
-    for (const t of allTasks) {
-      if (!t.parentId) continue;
-      const s = m.get(t.parentId) ?? { done: 0, total: 0 };
+    for (const task of allTasks) {
+      if (!task.parentId) continue;
+      const s = m.get(task.parentId) ?? { done: 0, total: 0 };
       s.total++;
-      if (t.completedAt) s.done++;
-      m.set(t.parentId, s);
+      if (task.completedAt) s.done++;
+      m.set(task.parentId, s);
     }
     return m;
   }, [allTasks]);
@@ -64,7 +65,7 @@ const TaskListView: React.FC = () => {
       return;
     }
     if (e.shiftKey && s.cursorId) {
-      const ids = s.tasks.map((t) => t.id);
+      const ids = s.tasks.map((x) => x.id);
       const a = ids.indexOf(s.cursorId);
       const b = ids.indexOf(id);
       if (a >= 0 && b >= 0) {
@@ -84,32 +85,32 @@ const TaskListView: React.FC = () => {
   const isCompletedView = view.kind === 'system' && view.view === 'completed';
   const canAdd = tab === 'open' && !isCompletedView && view.kind !== 'search';
   const emptyText = isCompletedView || tab === 'completed'
-    ? 'Здесь появятся выполненные задачи'
+    ? t('Здесь появятся выполненные задачи')
     : view.kind === 'system' && view.view === 'inbox'
-      ? 'Всё разобрано'
+      ? t('Всё разобрано')
       : view.kind === 'search' || view.kind === 'smart'
-        ? 'Нет подходящих задач'
-        : 'Задач нет';
+        ? t('Нет подходящих задач')
+        : t('Задач нет');
 
   return (
     <section className="task-list" aria-label={title}>
       <header className="task-list-header">
         <h2 className="task-list-title">{title}</h2>
-        <span className="task-list-count" aria-label={`задач: ${tasks.length}`}>{tasks.length}</span>
+        <span className="task-list-count" aria-label={t('задач: {n}', { n: tasks.length })}>{tasks.length}</span>
         {list && !list.isSystem && <ListMenu listId={list.id} name={list.name} smartQuery={list.isSmart ? list.filterQuery ?? '' : null} />}
       </header>
 
       {!isCompletedView && (
-        <div className="task-list-tabs" role="tablist" aria-label="Состояние задач">
-          {(['open', 'completed'] as const).map((t) => (
+        <div className="task-list-tabs" role="tablist" aria-label={t('Состояние задач')}>
+          {(['open', 'completed'] as const).map((x) => (
             <button
-              key={t}
+              key={x}
               role="tab"
-              aria-selected={tab === t}
-              className={`task-list-tab${tab === t ? ' task-list-tab--active' : ''}`}
-              onClick={() => store.getState().setTab(t)}
+              aria-selected={tab === x}
+              className={`task-list-tab${tab === x ? ' task-list-tab--active' : ''}`}
+              onClick={() => store.getState().setTab(x)}
             >
-              {t === 'open' ? 'Невыполненные' : 'Выполненные'}
+              {x === 'open' ? t('Невыполненные') : t('Выполненные')}
             </button>
           ))}
         </div>
@@ -119,21 +120,21 @@ const TaskListView: React.FC = () => {
         <SmartAddInput
           primary
           onSubmit={(r) => createFromSmartAdd(r)}
-          placeholder={isOnline ? undefined : 'Новая задача (офлайн — сохранится и отправится позже)'}
+          placeholder={isOnline ? undefined : t('Новая задача (офлайн — сохранится и отправится позже)')}
         />
       )}
 
       {!isOnline && (
         <div className="offline-banner" role="status">
-          Нет подключения. Изменения сохранятся на устройстве и отправятся при подключении.
+          {t('Нет подключения. Изменения сохранятся на устройстве и отправятся при подключении.')}
         </div>
       )}
 
       {selected.length > 0 ? (
         <MassOperationsBar />
       ) : (
-        <div className="task-list-sortbar" aria-label="Сортировка">
-          <span className="task-list-sortbar-label">Сортировка:</span>
+        <div className="task-list-sortbar" aria-label={t('Сортировка')}>
+          <span className="task-list-sortbar-label">{t('Сортировка:')}</span>
           {SORTS.map((s) => (
             <button
               key={s.field}
@@ -141,7 +142,7 @@ const TaskListView: React.FC = () => {
               aria-pressed={sortBy === s.field}
               onClick={() => (sortBy === s.field ? store.getState().toggleSortAsc() : store.getState().setSortBy(s.field))}
             >
-              {s.label}
+              {t(s.label)}
               {sortBy === s.field ? (sortAsc ? ' ↑' : ' ↓') : ''}
             </button>
           ))}
@@ -150,16 +151,16 @@ const TaskListView: React.FC = () => {
 
       {error ? (
         <div className="task-list-error" role="alert">
-          Ошибка в запросе: {error}
+          {t('Ошибка в запросе: {error}', { error })}
         </div>
       ) : tasks.length === 0 ? (
         <div className="task-list-empty">
           <div className="task-list-empty-icon" aria-hidden="true">✓</div>
           <p>{emptyText}</p>
-          {canAdd && <p className="task-list-empty-hint">Нажмите T, чтобы добавить задачу. ? — все горячие клавиши.</p>}
+          {canAdd && <p className="task-list-empty-hint">{t('Нажмите T, чтобы добавить задачу. ? — все горячие клавиши.')}</p>}
         </div>
       ) : (
-        <div className="task-list-rows" role="list" aria-label={`Задачи: ${title}`}>
+        <div className="task-list-rows" role="list" aria-label={t('Задачи: {title}', { title })}>
           {tasks.map((task) => (
             <TaskRow
               key={task.id}
@@ -215,13 +216,13 @@ const ListMenu: React.FC<{ listId: string; name: string; smartQuery: string | nu
       >
         <input
           className="list-menu-input"
-          aria-label={editing === 'name' ? 'Название списка' : 'Запрос умного списка'}
+          aria-label={editing === 'name' ? t('Название списка') : t('Запрос умного списка')}
           value={value}
           autoFocus
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => e.key === 'Escape' && setEditing(null)}
         />
-        <button type="submit" className="list-menu-btn">Сохранить</button>
+        <button type="submit" className="list-menu-btn">{t('Сохранить')}</button>
         {problem && <span className="list-menu-error" role="alert">{problem}</span>}
       </form>
     );
@@ -229,27 +230,30 @@ const ListMenu: React.FC<{ listId: string; name: string; smartQuery: string | nu
 
   return (
     <div className="list-menu">
-      <button className="list-menu-toggle" aria-haspopup="menu" aria-expanded={open} aria-label="Меню списка" onClick={() => setOpen(!open)}>
+      <button className="list-menu-toggle" aria-haspopup="menu" aria-expanded={open} aria-label={t('Меню списка')} onClick={() => setOpen(!open)}>
         ⋯
       </button>
       {open && (
         <div className="list-menu-items" role="menu">
-          <button role="menuitem" onClick={() => { setOpen(false); setValue(name); setEditing('name'); }}>Переименовать</button>
+          <button role="menuitem" onClick={() => { setOpen(false); setValue(name); setEditing('name'); }}>{t('Переименовать')}</button>
           {smartQuery !== null && (
-            <button role="menuitem" onClick={() => { setOpen(false); setValue(smartQuery); setEditing('query'); }}>Изменить запрос</button>
+            <button role="menuitem" onClick={() => { setOpen(false); setValue(smartQuery); setEditing('query'); }}>{t('Изменить запрос')}</button>
           )}
           <button
             role="menuitem"
             className="list-menu-danger"
             onClick={async () => {
               setOpen(false);
-              if (!window.confirm(`Удалить список «${name}»?${smartQuery === null ? ' Задачи переместятся во «Входящие».' : ''}`)) return;
+              const question = smartQuery === null
+                ? t('Удалить список «{name}»? Задачи переместятся во «Входящие».', { name })
+                : t('Удалить список «{name}»?', { name });
+              if (!window.confirm(question)) return;
               await deleteList(listId);
               store.getState().setCurrentView({ kind: 'system', view: 'inbox' });
               await refreshData();
             }}
           >
-            Удалить список
+            {t('Удалить список')}
           </button>
         </div>
       )}

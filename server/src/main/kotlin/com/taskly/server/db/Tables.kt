@@ -172,3 +172,26 @@ object RefreshTokensTable {
     val REVOKED = DSL.field(DSL.name("revoked"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.inline(false)))
     val CREATED_AT = DSL.field(DSL.name("created_at"), SQLDataType.TIMESTAMPWITHTIMEZONE.nullable(false).defaultValue(DSL.function("now", SQLDataType.TIMESTAMPWITHTIMEZONE)))
 }
+object RemindersTable {
+    val TABLE: Table<Record> = DSL.table(DSL.name("reminders"))
+    val ID = DSL.field(DSL.name("id"), SQLDataType.UUID.nullable(false).defaultValue(DSL.field("gen_random_uuid()", SQLDataType.UUID)))
+    val TASK_ID = DSL.field(DSL.name("task_id"), SQLDataType.UUID.nullable(false))
+    val FIRE_AT = DSL.field(DSL.name("fire_at"), SQLDataType.TIMESTAMPWITHTIMEZONE.nullable(false))
+    val CHANNEL = DSL.field(DSL.name("channel"), SQLDataType.CLOB.nullable(false))
+    val SENT = DSL.field(DSL.name("sent"), SQLDataType.BOOLEAN.nullable(false).defaultValue(DSL.inline(false)))
+}
+
+object PushSubscriptionsTable {
+    val TABLE: Table<Record> = DSL.table(DSL.name("push_subscriptions"))
+    val ID = DSL.field(DSL.name("id"), SQLDataType.UUID.nullable(false).defaultValue(DSL.field("gen_random_uuid()", SQLDataType.UUID)))
+    val USER_ID = DSL.field(DSL.name("user_id"), SQLDataType.UUID.nullable(false))
+    val ENDPOINT = DSL.field(DSL.name("endpoint"), SQLDataType.CLOB.nullable(false))
+    val P256DH = DSL.field(DSL.name("p256dh"), SQLDataType.CLOB.nullable(false))
+    val AUTH = DSL.field(DSL.name("auth"), SQLDataType.CLOB.nullable(false))
+}
+
+object DigestLogTable {
+    val TABLE: Table<Record> = DSL.table(DSL.name("digest_log"))
+    val USER_ID = DSL.field(DSL.name("user_id"), SQLDataType.UUID.nullable(false))
+    val DAY = DSL.field(DSL.name("day"), SQLDataType.LOCALDATE.nullable(false))
+}

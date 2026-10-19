@@ -9,6 +9,7 @@ import { SYSTEM_VIEWS, sameView } from '../app/view';
 import { inView, createList } from '../../entities/taskRepository';
 import { refreshData } from '../app/data';
 import { checkQuery, runQuery } from '../query/smartQuery';
+import { t } from '../../i18n/i18n';
 
 export function navigate(view: AppView): void {
   const s = store.getState();
@@ -36,7 +37,7 @@ const Item: React.FC<{ view: AppView; current: AppView; icon: string; label: str
       <span className="sidebar-item-icon" aria-hidden="true">{icon}</span>
       <span className="sidebar-item-label">{label}</span>
       {count !== undefined && count > 0 && (
-        <span className="sidebar-item-count" aria-label={`, задач: ${count}`}>
+        <span className="sidebar-item-count" aria-label={t(', задач: {n}', { n: count })}>
           {count}
         </span>
       )}
@@ -94,13 +95,13 @@ const Sidebar: React.FC = () => {
   }
 
   return (
-    <nav className={`sidebar${collapsed ? ' sidebar--collapsed' : ''}`} aria-label="Навигация">
+    <nav className={`sidebar${collapsed ? ' sidebar--collapsed' : ''}`} aria-label={t('Навигация')}>
       <div className="sidebar-header">
         <span className="sidebar-logo">Taskly</span>
         <button
           type="button"
           className="sidebar-collapse"
-          aria-label={collapsed ? 'Развернуть меню' : 'Свернуть меню'}
+          aria-label={collapsed ? t('Развернуть меню') : t('Свернуть меню')}
           aria-expanded={!collapsed}
           onClick={() => setCollapsed(!collapsed)}
         >
@@ -109,24 +110,24 @@ const Sidebar: React.FC = () => {
       </div>
 
       <div className="sidebar-scroll">
-        <div className="sidebar-section" role="group" aria-label="Представления">
+        <div className="sidebar-section" role="group" aria-label={t('Представления')}>
           {SYSTEM_VIEWS.map((v) => (
             <Item
               key={v.view}
               view={{ kind: 'system', view: v.view }}
               current={current}
               icon={v.icon}
-              label={v.label}
+              label={t(v.label)}
               count={counts.system[v.view]}
               collapsed={collapsed}
             />
           ))}
         </div>
 
-        <div className="sidebar-section" role="group" aria-label="Списки">
+        <div className="sidebar-section" role="group" aria-label={t('Списки')}>
           <div className="sidebar-section-title">
-            <span>Списки</span>
-            <button type="button" className="sidebar-add" aria-label="Новый список" onClick={() => setNewList('')}>
+            <span>{t('Списки')}</span>
+            <button type="button" className="sidebar-add" aria-label={t('Новый список')} onClick={() => setNewList('')}>
               +
             </button>
           </div>
@@ -141,7 +142,7 @@ const Sidebar: React.FC = () => {
             >
               <input
                 className="sidebar-new-input"
-                aria-label="Название нового списка"
+                aria-label={t('Название нового списка')}
                 autoFocus
                 value={newList}
                 onChange={(e) => setNewList(e.target.value)}
@@ -163,10 +164,10 @@ const Sidebar: React.FC = () => {
           ))}
         </div>
 
-        <div className="sidebar-section" role="group" aria-label="Умные списки">
+        <div className="sidebar-section" role="group" aria-label={t('Умные списки')}>
           <div className="sidebar-section-title">
-            <span>Умные списки</span>
-            <button type="button" className="sidebar-add" aria-label="Новый умный список" onClick={() => navigate({ kind: 'smart-lists' })}>
+            <span>{t('Умные списки')}</span>
+            <button type="button" className="sidebar-add" aria-label={t('Новый умный список')} onClick={() => navigate({ kind: 'smart-lists' })}>
               +
             </button>
           </div>
@@ -184,9 +185,9 @@ const Sidebar: React.FC = () => {
         </div>
 
         {tagNames.length > 0 && (
-          <div className="sidebar-section" role="group" aria-label="Теги">
+          <div className="sidebar-section" role="group" aria-label={t('Теги')}>
             <div className="sidebar-section-title">
-              <span>Теги</span>
+              <span>{t('Теги')}</span>
             </div>
             <div className="sidebar-tags">
               {tagNames.map((tag) => {
@@ -210,9 +211,9 @@ const Sidebar: React.FC = () => {
         )}
 
         {locations.length > 0 && (
-          <div className="sidebar-section" role="group" aria-label="Места">
+          <div className="sidebar-section" role="group" aria-label={t('Места')}>
             <div className="sidebar-section-title">
-              <span>Места</span>
+              <span>{t('Места')}</span>
             </div>
             {locations.map((l) => (
               <Item
@@ -232,11 +233,11 @@ const Sidebar: React.FC = () => {
       <div className="sidebar-footer">
         <AuthPanel />
         <div className="sidebar-sync-status" role="status">
-          {isOnline ? 'В сети' : 'Офлайн'}
+          {isOnline ? t('В сети') : t('Офлайн')}
         </div>
         <div className="sidebar-nav-links">
-          <Item view={{ kind: 'settings' }} current={current} icon="⚙️" label="Настройки" collapsed={collapsed} />
-          <Item view={{ kind: 'onboarding' }} current={current} icon="🎓" label="Знакомство и шпаргалка" collapsed={collapsed} />
+          <Item view={{ kind: 'settings' }} current={current} icon="⚙️" label={t('Настройки')} collapsed={collapsed} />
+          <Item view={{ kind: 'onboarding' }} current={current} icon="🎓" label={t('Знакомство и шпаргалка')} collapsed={collapsed} />
         </div>
       </div>
     </nav>

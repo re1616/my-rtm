@@ -33,7 +33,9 @@ data class SyncConfig(
 data class PushConfig(
     val fcmServerKey: String,
     val vapidPublicKey: String,
-    val vapidPrivateKey: String
+    val vapidPrivateKey: String,
+    /** VAPID "sub" claim: how push services can reach the operator (mailto: or https:). */
+    val vapidSubject: String = "mailto:admin@taskly.local",
 )
 
 data class SmtpConfig(
@@ -91,6 +93,7 @@ object Config {
         fcmServerKey = config.getString("fcmServerKey"),
         vapidPublicKey = config.getString("vapidPublicKey"),
         vapidPrivateKey = config.getString("vapidPrivateKey"),
+        vapidSubject = config.getString("vapidSubject"),
     ).also { validatePush(it, isDev) }
 
     val appUrl: String = config.getString("appUrl").trimEnd('/')

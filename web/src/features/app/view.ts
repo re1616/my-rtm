@@ -3,6 +3,7 @@ import type { AppView, Task, TaskList, TaskLocation } from '../../types';
 import { inView, sortTasks, INBOX_ID } from '../../entities/taskRepository';
 import { checkQuery, runQuery } from '../query/smartQuery';
 import type { ListTab } from '../../store/taskStore';
+import { t } from '../../i18n/i18n';
 
 export const SYSTEM_VIEWS: { view: Extract<AppView, { kind: 'system' }>['view']; label: string; icon: string }[] = [
   { view: 'inbox', label: 'Входящие', icon: '📥' },
@@ -85,24 +86,24 @@ export function computeView(input: ViewInput): ViewResult {
 export function viewTitle(view: AppView, lists: TaskList[], locations: TaskLocation[]): string {
   switch (view.kind) {
     case 'system':
-      return SYSTEM_VIEWS.find((s) => s.view === view.view)?.label ?? view.view;
+      return t(SYSTEM_VIEWS.find((s) => s.view === view.view)?.label ?? view.view);
     case 'list':
     case 'smart':
-      return lists.find((l) => l.id === view.listId)?.name ?? 'Список';
+      return lists.find((l) => l.id === view.listId)?.name ?? t('Список');
     case 'tag':
       return '#' + view.tag;
     case 'location':
       return '@' + (locations.find((l) => l.id === view.locationId)?.name ?? '');
     case 'search':
-      return 'Поиск';
+      return t('Поиск');
     case 'settings':
-      return 'Настройки';
+      return t('Настройки');
     case 'onboarding':
-      return 'Знакомство';
+      return t('Знакомство');
     case 'smart-lists':
-      return 'Умные списки';
+      return t('Умные списки');
     default:
-      return 'Задачи';
+      return t('Задачи');
   }
 }
 
