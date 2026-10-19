@@ -28,7 +28,7 @@ fun main() {
     // Android background wake-ups via FCM (service-account JSON in FCM_SERVER_KEY)
     com.taskly.server.push.DeviceNotifier.init(Config.push.fcmServerKey)
 
-    embeddedServer(Netty, port = 8080, host = "0.0.0.0") {
+    embeddedServer(Netty, port = 8080, host = "0.0.0.0", configure = { callGroupSize = Config.callThreads }) {
         configureSerialization()
         configureStatusPages()
         configureRouting()
