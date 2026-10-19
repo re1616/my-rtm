@@ -134,7 +134,7 @@ class FcmIntegrationTest {
         assertEquals(1, DeviceNotifier.wake(sender, UUID.fromString(userId)))
         messages.clear()
         assertEquals(1, DeviceNotifier.wake(sender, UUID.fromString(userId)), "the unregistered token was removed")
-        assertEquals(1, tokenRequests.size, "the access token is cached")
+        assertTrue(tokenRequests.size <= 1, "the access token is cached (another test may have fetched it already)")
     }
 
     @Test

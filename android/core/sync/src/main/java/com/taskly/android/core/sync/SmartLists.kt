@@ -1,3 +1,5 @@
+@file:OptIn(kotlin.time.ExperimentalTime::class)
+
 package com.taskly.android.core.sync
 
 import com.taskly.android.core.database.ListEntity
@@ -10,9 +12,9 @@ import com.taskly.shared.domain.model.Uuid
 import com.taskly.shared.query.QueryParser
 import com.taskly.shared.query.QueryPredicate
 import com.taskly.shared.query.TaskEvalContext
-import kotlinx.datetime.Clock
-import kotlinx.datetime.Instant
 import kotlinx.datetime.TimeZone
+import kotlin.time.Clock
+import kotlin.time.Instant
 
 /**
  * Smart lists and query search on Android (AND-S7): the shared query language and predicate
