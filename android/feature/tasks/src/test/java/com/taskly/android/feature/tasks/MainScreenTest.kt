@@ -80,19 +80,17 @@ class FakeAuth(context: Context, var user: String? = USER) : AuthRepository(
  * Compose UI of the task screens on the JVM (Robolectric): Room in memory, the real
  * repository and sync queue; only the network is absent.
  */
-@RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], qualifiers = "w411dp-h891dp") // a typical phone
-class MainScreenTest {
+abstract class UiTestBase {
 
     @get:Rule
     val compose = createComposeRule()
 
-    private lateinit var db: TasklyDatabase
-    private lateinit var repo: TaskRepository
-    private lateinit var auth: FakeAuth
-    private lateinit var vm: MainViewModel
-    private val status = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
-    private var syncRequests = 0
+    protected lateinit var db: TasklyDatabase
+    protected lateinit var repo: TaskRepository
+    protected lateinit var auth: FakeAuth
+    protected lateinit var vm: MainViewModel
+    protected val status = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
+    protected var syncRequests = 0
 
     @Before
     fun setUp() {
@@ -106,15 +104,20 @@ class MainScreenTest {
     @After
     fun tearDown() = db.close()
 
-    private fun show() = compose.setContent { TasklyRoot(vm) }
+    protected fun show() = compose.setContent { TasklyRoot(vm) }
 
-    private fun waitForText(text: String, substring: Boolean = false) =
+    protected fun waitForText(text: String, substring: Boolean = false) =
         compose.waitUntil(5_000) { compose.onAllNodes(hasText(text, substring = substring)).fetchSemanticsNodes().isNotEmpty() }
 
-    private fun waitGone(text: String) =
+    protected fun waitGone(text: String) =
         compose.waitUntil(5_000) { compose.onAllNodes(hasText(text)).fetchSemanticsNodes().isEmpty() }
 
-    private fun task(name: String) = runBlocking { repo.createTask(FakeAuth.USER, name) }
+    protected fun task(name: String) = runBlocking { repo.createTask(FakeAuth.USER, name) }
+}
+
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "w411dp-h891dp") // a typical phone
+class MainScreenTest : UiTestBase() {
 
     @Test
     fun smartAddCreatesTaskWithPriorityAndTag_andUndoRemovesIt() {
@@ -239,9 +242,21 @@ class MainScreenTest {
     }
 
     @Test
-    fun settingsPatchReminderOffsets() {
+    fun menuButtonOpensTheDrawer() {
         show()
         compose.onNodeWithTag("open_drawer").performClick()
+        compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("nav_today")).fetchSemanticsNodes().any { n -> n.boundsInRoot.left >= 0f } }
+    }
+}
+
+/** Navigation through the side menu (always visible on wide screens). */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], qualifiers = "w1000dp-h800dp")
+class NavigationTest : UiTestBase() {
+
+    @Test
+    fun settingsPatchReminderOffsets() {
+        show()
         compose.onNodeWithTag("nav_settings").performScrollTo().performClick()
         compose.waitUntil(5_000) { vm.screen.value == MainViewModel.Screen.SETTINGS }
         compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("offset_60")).fetchSemanticsNodes().isNotEmpty() }
@@ -253,7 +268,6 @@ class MainScreenTest {
     @Test
     fun drawerSwitchesToToday_andNewTasksThereGetTodaysDate() {
         show()
-        compose.onNodeWithTag("open_drawer").performClick()
         compose.onNodeWithTag("nav_today").performScrollTo().performClick()
         compose.waitUntil(5_000) { vm.view.value == TaskView.Sys(TaskView.System.TODAY) }
         compose.waitForIdle()

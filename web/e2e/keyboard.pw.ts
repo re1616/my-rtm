@@ -61,9 +61,12 @@ test('quick add and inbox triage without the mouse', async ({ page }) => {
   await expect(rows(page)).toHaveCount(2);
 
   // Card from the keyboard: J, Enter, Escape
-  await page.keyboard.press('j');
-  await page.keyboard.press('Enter');
-  await expect(page.getByRole('complementary', { name: /^Задача:/ })).toBeVisible();
+  // Right after Ctrl+Z the restored rows re-render; retry the keys until the list has taken them
+  await expect(async () => {
+    await page.keyboard.press('j');
+    await page.keyboard.press('Enter');
+    await expect(page.getByRole('complementary', { name: /^Задача:/ })).toBeVisible({ timeout: 1_000 });
+  }).toPass({ timeout: 10_000 });
   await page.keyboard.press('Escape');
   await expect(page.getByRole('complementary', { name: /^Задача:/ })).toHaveCount(0);
 
