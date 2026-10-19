@@ -126,6 +126,9 @@ jobs:
           android_status=${PIPESTATUS[0]}
           wait $pw; pw_status=$?
           cat playwright-qa5.log
+          if [ "$pw_status" != 0 ]; then
+            python3 -c "import sys;t=open('playwright-qa5.log',errors='replace').read()[-6000:];print('::error title=QA-5 browser half::'+t.replace('%','%25').replace('\r','').replace('\n','%0A'))"
+          fi
           # Both halves must have actually run (not skipped)
           python3 - <<'PY' || exit 1
           import glob, xml.etree.ElementTree as ET

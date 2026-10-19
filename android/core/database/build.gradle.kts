@@ -44,6 +44,12 @@ kapt {
     }
 }
 
+// The exported schema is a kapt output: declare it, so a build-cache hit restores the JSON
+// files too (otherwise a cached kapt run leaves a new schema version missing for the tests)
+tasks.matching { it.name.startsWith("kapt") && it.name.endsWith("Kotlin") }.configureEach {
+    outputs.dir("$projectDir/schemas")
+}
+
 configurations.configureEach {
     // Room 2.8.x bundles an older kotlin-metadata-jvm that can't read Kotlin 2.4 metadata
     resolutionStrategy.eachDependency {
