@@ -31,6 +31,7 @@ test('QA-5: a task created offline on Android is visible in the web app within 2
 
   await expect(page.getByText(name)).toBeVisible({ timeout: 10_000 });
   const latency = Date.now() - pushedAt;
-  console.log(`QA-5 latency: ${latency} ms`);
+  // Printed by the CI step, so GitHub shows it as an annotation
+  console.log(`::notice title=QA-5 Android → web latency::${latency} ms (limit 2000 ms)`);
   expect(latency).toBeLessThanOrEqual(2_000);
 });
