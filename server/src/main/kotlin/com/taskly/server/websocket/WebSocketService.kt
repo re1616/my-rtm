@@ -1,7 +1,7 @@
 package com.taskly.server.websocket
 
 import com.taskly.server.auth.AuthService
-import com.taskly.server.redis.RedisService
+import com.taskly.server.redis.RedisFanout
 import com.taskly.server.sync.ChangeLog
 import java.util.UUID
 import io.ktor.server.application.*
@@ -13,7 +13,6 @@ import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import org.slf4j.LoggerFactory
-import redis.clients.jedis.JedisPubSub
 import java.util.concurrent.ConcurrentHashMap
 
 /**
@@ -46,7 +45,18 @@ object WebSocketService {
     suspend fun handleSession(session: DefaultWebSocketServerSession) {
         var userId: String? = null
         var scopes = mutableSetOf<String>()
-        var pubSub: JedisPubSub? = null
+        val subscriptions = mutableListOf<AutoCloseable>()
+        fun listen(channel: String) {
+            subscriptions += RedisFanout.listen(channel) { message ->
+                session.launch {
+                    try {
+                        session.send(Frame.Text(json.encodeToString(WsMessage("sync_update", message))))
+                    } catch (_: Exception) {
+                        // session closed
+                    }
+                }
+            }
+        }
 
         try {
             for (frame in session.incoming) {
@@ -95,17 +105,10 @@ object WebSocketService {
                         userSessions.getOrPut(uid) { ConcurrentHashMap.newKeySet() }.add(session)
                         sessionScopes[session] = scopes
 
-                        // Start Redis listener for this user; unsubscribed when the socket closes
-                        val listener = createPubSub(session)
-                        pubSub = listener
-                        val channels = scopes.map { ChangeLog.channel(UUID.fromString(uid), it) }.toTypedArray()
-                        CoroutineScope(Dispatchers.IO).launch {
-                            try {
-                                RedisService.subscribe(listener, *channels)
-                            } catch (e: Exception) {
-                                log.warn("Redis subscription ended: ${e.message}")
-                            }
-                        }
+                        // One shared Redis subscription per server; this socket listens to its channels.
+                        // Registered before auth_ok, so no change after auth_ok is missed.
+                        withContext(Dispatchers.IO) { RedisFanout.ensureStarted() }
+                        for (scope in scopes) listen(ChangeLog.channel(UUID.fromString(uid), scope))
 
                         session.send(Frame.Text(json.encodeToString(WsMessage("auth_ok", """{"userId":"$uid"}"""))))
                     }
@@ -127,7 +130,7 @@ object WebSocketService {
                         }
                         if (subData.scope !in scopes) {
                             scopes.add(subData.scope)
-                            pubSub?.subscribe(ChangeLog.channel(UUID.fromString(userId), subData.scope))
+                            listen(ChangeLog.channel(UUID.fromString(userId), subData.scope))
                         }
                         sessionScopes[session] = scopes
                         session.send(Frame.Text(json.encodeToString(WsMessage("subscribed", """{"scope":"${subData.scope}"}"""))))
@@ -145,12 +148,8 @@ object WebSocketService {
         } catch (e: Exception) {
             log.warn("WebSocket session error: ${e.message}")
         } finally {
-            // Cleanup on disconnect: release the blocking Redis subscription and its connection
-            try {
-                if (pubSub?.isSubscribed == true) pubSub?.unsubscribe()
-            } catch (e: Exception) {
-                log.debug("Unsubscribe failed: ${e.message}")
-            }
+            // Cleanup on disconnect: stop listening (the shared subscription stays)
+            subscriptions.forEach { runCatching { it.close() } }
             if (userId != null) {
                 userSessions[userId]?.remove(session)
                 if (userSessions[userId]?.isEmpty() == true) {
@@ -158,19 +157,6 @@ object WebSocketService {
                 }
             }
             sessionScopes.remove(session)
-        }
-    }
-
-    /** Forwards Redis messages for this session to the socket. */
-    private fun createPubSub(session: DefaultWebSocketServerSession): JedisPubSub = object : JedisPubSub() {
-        override fun onMessage(channel: String, message: String) {
-            session.launch {
-                try {
-                    session.send(Frame.Text(json.encodeToString(WsMessage("sync_update", message))))
-                } catch (e: Exception) {
-                    // Session closed
-                }
-            }
         }
     }
 }
