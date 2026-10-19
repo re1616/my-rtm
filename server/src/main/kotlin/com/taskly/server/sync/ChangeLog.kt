@@ -64,6 +64,8 @@ object ChangeLog {
      * otherwise clients may fetch the delta before the data is visible.
      */
     fun publish(changes: List<Change>) {
+        // Android apps in the background get a FCM wake-up (AND-S4)
+        if (changes.isNotEmpty()) com.taskly.server.push.DeviceNotifier.changed(changes.map { it.userId })
         for (c in changes) {
             val message = buildJsonObject {
                 put("seq", c.seq)

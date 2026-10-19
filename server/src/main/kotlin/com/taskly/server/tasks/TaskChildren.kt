@@ -38,6 +38,12 @@ data class HistoryEntry(val seq: Long, val entity: String, val entityId: String,
  */
 object TaskChildren {
     const val MAX_NOTE_LENGTH = 100_000
+
+    /** Set by [applyNoteOp] when an edit lost to a newer server version (per call, single thread). */
+    private val conflictFlag = ThreadLocal.withInitial { false }
+    var conflict: Boolean
+        get() = conflictFlag.get()
+        private set(v) = conflictFlag.set(v)
     const val MAX_SUBTASK_DEPTH = 3
 
     private val fmt = DateTimeFormatter.ISO_OFFSET_DATE_TIME
@@ -45,7 +51,12 @@ object TaskChildren {
     // ── Sync operations ──────────────────────────────────────────
 
     /** Applies a `note` operation (create / update / delete); returns the change and the new version. */
-    fun applyNoteOp(tx: DSLContext, ownerId: UUID, id: UUID, type: String, fields: Map<String, JsonElement?>): Pair<ChangeLog.Change?, Long?> {
+    /**
+     * [baseVersion]: the note version the client edited. When the server has a newer one, the
+     * edit is not applied and [conflict] is reported (AND-S5: the client asks the user).
+     */
+    fun applyNoteOp(tx: DSLContext, ownerId: UUID, id: UUID, type: String, fields: Map<String, JsonElement?>, baseVersion: Long? = null): Pair<ChangeLog.Change?, Long?> {
+        conflict = false
         val existing = tx.selectFrom(NotesTable.TABLE).where(NotesTable.ID.eq(id)).forUpdate().fetchOne()
         if (existing != null) requireOwnTask(tx, ownerId, existing.get(NotesTable.TASK_ID))
         return when (type) {
@@ -66,6 +77,10 @@ object TaskChildren {
                     val version = rec.get(NotesTable.VERSION)
                     ChangeLog.append(tx, ownerId, "note", id, "create", notePayload(taskId, content), version) to version
                 } else {
+                    if (type == "update" && baseVersion != null && existing.get(NotesTable.VERSION) > baseVersion) {
+                        conflict = true
+                        return null to existing.get(NotesTable.VERSION)
+                    }
                     val version = existing.get(NotesTable.VERSION) + 1
                     tx.update(NotesTable.TABLE)
                         .set(NotesTable.CONTENT, content)
@@ -212,6 +227,14 @@ object TaskChildren {
     }
 
     // ── Reads ────────────────────────────────────────────────────
+
+    /** Notes of a task of [userId] (404 for other users' tasks). */
+    fun notesOfTask(userId: String, taskId: String): List<NoteResponse> {
+        val id = runCatching { UUID.fromString(taskId) }.getOrElse { throw NotFoundException("Task not found") }
+        val ctx = Database.ctx()
+        requireOwnTask(ctx, UUID.fromString(userId), id)
+        return notesFor(ctx, listOf(id))
+    }
 
     fun notesFor(tx: DSLContext, taskIds: Collection<UUID>): List<NoteResponse> =
         if (taskIds.isEmpty()) emptyList() else

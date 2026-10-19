@@ -5,9 +5,11 @@ import { defineConfig } from '@playwright/test';
 export default defineConfig({
   testDir: './e2e',
   testMatch: '**/*.pw.ts',
+  // The cross-client test needs the Android side running at the same time (CI step "QA-5")
+  testIgnore: process.env.QA5_DIR ? [] : ['**/crossClient.pw.ts'],
   timeout: 60_000,
   retries: 0,
-  reporter: [['list'], ['github'], ['junit', { outputFile: 'playwright-junit.xml' }]],
+  reporter: [['list'], ['github'], ['junit', { outputFile: process.env.PW_JUNIT ?? 'playwright-junit.xml' }]],
   use: {
     baseURL: 'http://localhost:4173',
     // The scenarios are written in Russian; a fresh profile picks the UI language from the browser

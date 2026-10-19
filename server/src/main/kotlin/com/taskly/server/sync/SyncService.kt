@@ -170,8 +170,12 @@ object SyncService {
             "tag" -> applyTagOp(tx, ownerId, entityId, op)
             "location" -> applyLocationOp(tx, ownerId, entityId, op)
             "note" -> {
-                val (change, version) = TaskChildren.applyNoteOp(tx, ownerId, entityId, op.type, op.fields.orEmpty())
-                Applied(ok(op, entityId, version), listOfNotNull(change))
+                val (change, version) = TaskChildren.applyNoteOp(tx, ownerId, entityId, op.type, op.fields.orEmpty(), op.baseVersion)
+                if (TaskChildren.conflict) {
+                    Applied(SyncResult(op.opId, "conflict_resolved", entityId.toString(), version, error = "skipped (newer on server): content"), emptyList())
+                } else {
+                    Applied(ok(op, entityId, version), listOfNotNull(change))
+                }
             }
             "attachment" -> {
                 val (change, version) = TaskChildren.applyAttachmentOp(tx, ownerId, entityId, op.type, op.fields.orEmpty())

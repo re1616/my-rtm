@@ -195,3 +195,12 @@ object DigestLogTable {
     val USER_ID = DSL.field(DSL.name("user_id"), SQLDataType.UUID.nullable(false))
     val DAY = DSL.field(DSL.name("day"), SQLDataType.LOCALDATE.nullable(false))
 }
+
+object PushDevicesTable {
+    val TABLE: Table<Record> = DSL.table(DSL.name("push_devices"))
+    val ID = DSL.field(DSL.name("id"), SQLDataType.UUID.nullable(false).defaultValue(DSL.field("gen_random_uuid()", SQLDataType.UUID)))
+    val USER_ID = DSL.field(DSL.name("user_id"), SQLDataType.UUID.nullable(false))
+    val TOKEN = DSL.field(DSL.name("token"), SQLDataType.CLOB.nullable(false))
+    val PLATFORM = DSL.field(DSL.name("platform"), SQLDataType.CLOB.nullable(false))
+    val EXACT_ALARMS = DSL.field(DSL.name("exact_alarms"), SQLDataType.BOOLEAN.nullable(false))
+}

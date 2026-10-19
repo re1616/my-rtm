@@ -195,6 +195,21 @@ class TaskCardIntegrationTest {
         assertEquals("Oops", json.parseToJsonElement(restore.str("payload")).jsonObject.str("name"))
     }
 
+    @Test
+    fun `a note edit based on an old version is not applied and is reported as a conflict`() = testApplication {
+        application { moduleForTest() }
+        val u = client.register("noteconflict")
+        val task = client.newTask(u, "Shared note")
+        val note = uuid()
+        client.push(u, op(u, "note", note, "create", """{"taskId":"$task","content":"v1"}"""))
+        fun edit(content: String, base: Long) =
+            """{"opId":"${uuid()}","scope":"user:${u.id}","entity":"note","entityId":"$note","type":"update","fields":{"content":"$content"},"baseVersion":$base}"""
+        assertEquals("ok", client.push(u, edit("from phone", 1)).status())
+        val stale = client.push(u, edit("from laptop", 1))
+        assertEquals("conflict_resolved", stale.status())
+        assertEquals("from phone", client.snapshot(u)["notes"]!!.jsonArray.single { it.jsonObject.str("id") == note }.jsonObject.str("content"))
+    }
+
     // ── Helpers ──
 
     private data class User(val token: String, val id: String)

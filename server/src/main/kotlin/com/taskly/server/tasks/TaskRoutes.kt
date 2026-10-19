@@ -68,6 +68,13 @@ fun Route.taskRoutes() {
         call.respond(HttpStatusCode.OK, TaskChildren.history(userId, taskId, limit))
     }
 
+    // Notes of one task (clients re-read them after a conflict, AND-S5)
+    get("/v1/tasks/{id}/notes") {
+        val userId = requireUserId(call)
+        val taskId = call.parameters["id"] ?: return@get call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing task id"))
+        call.respond(HttpStatusCode.OK, TaskChildren.notesOfTask(userId, taskId))
+    }
+
     patch("/v1/tasks/{id}") {
         val userId = requireUserId(call)
         val taskId = call.parameters["id"] ?: return@patch call.respond(HttpStatusCode.BadRequest, ErrorResponse("Missing task id"))

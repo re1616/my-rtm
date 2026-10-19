@@ -110,7 +110,30 @@ object ReminderService {
             .onConflictDoNothing()
             .execute() > 0
 
-    private fun sendPush(owner: UUID, task: Record, locale: String): Int {
+    private fun sendPush(owner: UUID, task: Record, locale: String): Int =
+        sendWebPush(owner, task, locale) + sendDevicePush(owner, task)
+
+    /**
+     * Android devices that cannot set exact alarms get the reminder from the server (AND-N2);
+     * the others ring on their own and need nothing.
+     */
+    private fun sendDevicePush(owner: UUID, task: Record): Int {
+        val fcm = DeviceNotifier.fcm ?: return 0
+        val devices = Database.ctx().selectFrom(com.taskly.server.db.PushDevicesTable.TABLE)
+            .where(com.taskly.server.db.PushDevicesTable.USER_ID.eq(owner), com.taskly.server.db.PushDevicesTable.EXACT_ALARMS.isFalse)
+            .fetch()
+        var sent = 0
+        for (d in devices) {
+            val outcome = fcm.send(
+                d.get(com.taskly.server.db.PushDevicesTable.TOKEN),
+                mapOf("type" to "reminder", "taskId" to task.get(TasksTable.ID).toString(), "title" to task.get(TasksTable.NAME)),
+            )
+            if (outcome == FcmSender.Outcome.SENT) sent++
+        }
+        return sent
+    }
+
+    private fun sendWebPush(owner: UUID, task: Record, locale: String): Int {
         val sender = WebPush.sender ?: return 0
         val subs = Database.ctx().selectFrom(PushSubscriptionsTable.TABLE).where(PushSubscriptionsTable.USER_ID.eq(owner)).fetch()
         val payload = buildJsonObject {

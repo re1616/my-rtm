@@ -15,6 +15,14 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+
+        // FCM is configured from Gradle properties / environment (no google-services.json is
+        // committed). Empty values: the app runs without push (socket + periodic sync + alarms).
+        fun prop(name: String): String = (project.findProperty(name) as String?) ?: System.getenv(name) ?: ""
+        buildConfigField("String", "FCM_PROJECT_ID", "\"${prop("TASKLY_FCM_PROJECT_ID")}\"")
+        buildConfigField("String", "FCM_APP_ID", "\"${prop("TASKLY_FCM_APP_ID")}\"")
+        buildConfigField("String", "FCM_API_KEY", "\"${prop("TASKLY_FCM_API_KEY")}\"")
+        buildConfigField("String", "FCM_SENDER_ID", "\"${prop("TASKLY_FCM_SENDER_ID")}\"")
     }
 
     buildTypes {
@@ -40,6 +48,7 @@ android {
 
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -88,6 +97,9 @@ dependencies {
     kapt(libs.kotlin.metadata.jvm)
     implementation(libs.workmanager)
     implementation(libs.ktor.client.core)
+    implementation(libs.lifecycle.process)
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.messaging)
 
     debugImplementation(libs.compose.ui.tooling)
     debugImplementation(libs.compose.ui.test.manifest)

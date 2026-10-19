@@ -36,6 +36,8 @@ lifecycle = "2.8.7"
 workmanager = "2.9.0"
 datastore = "1.1.2"
 hilt-navigation-compose = "1.2.0"
+firebase-bom = "33.7.0"
+androidx-core = "1.13.1"
 
 [libraries]
 # Ktor server
@@ -103,6 +105,11 @@ activity-compose = { module = "androidx.activity:activity-compose", version.ref 
 navigation-compose = { module = "androidx.navigation:navigation-compose", version.ref = "navigation-compose" }
 lifecycle-runtime = { module = "androidx.lifecycle:lifecycle-runtime-compose", version.ref = "lifecycle" }
 lifecycle-viewmodel = { module = "androidx.lifecycle:lifecycle-viewmodel-compose", version.ref = "lifecycle" }
+lifecycle-process = { module = "androidx.lifecycle:lifecycle-process", version.ref = "lifecycle" }
+firebase-bom = { module = "com.google.firebase:firebase-bom", version.ref = "firebase-bom" }
+firebase-messaging = { module = "com.google.firebase:firebase-messaging" }
+androidx-core-ktx = { module = "androidx.core:core-ktx", version.ref = "androidx-core" }
+compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
 workmanager = { module = "androidx.work:work-runtime-ktx", version.ref = "workmanager" }
 datastore-preferences = { module = "androidx.datastore:datastore-preferences", version.ref = "datastore" }
 hilt-navigation-compose = { module = "androidx.hilt:hilt-navigation-compose", version.ref = "hilt-navigation-compose" }
