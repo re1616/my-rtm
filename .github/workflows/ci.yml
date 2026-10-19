@@ -110,14 +110,43 @@ jobs:
           raise SystemExit(0 if ran else 1)
           PY
           exit $status
+      - name: QA-5 — task created offline on Android is visible in the web app within 2 s
+        shell: bash
+        env:
+          TASKLY_E2E_URL: http://localhost:8080
+          TASKLY_API: http://localhost:8080
+          ANDROID_HOME: /usr/local/lib/android/sdk
+        run: |
+          export QA5_DIR=$(mktemp -d)
+          # Build first, so the browser does not wait for Gradle compilation
+          ./gradlew :android:core:sync:compileDebugUnitTestKotlin --console=plain > gradle-qa5-build.log 2>&1 || { tail -60 gradle-qa5-build.log; exit 1; }
+          (cd web && PW_JUNIT=playwright-qa5-junit.xml npx playwright test crossClient > ../playwright-qa5.log 2>&1) &
+          pw=$!
+          ./gradlew :android:core:sync:testDebugUnitTest --tests '*CrossClientE2ETest' --console=plain 2>&1 | tee gradle-qa5.log
+          android_status=${PIPESTATUS[0]}
+          wait $pw; pw_status=$?
+          cat playwright-qa5.log
+          # Both halves must have actually run (not skipped)
+          python3 - <<'PY' || exit 1
+          import glob, xml.etree.ElementTree as ET
+          def ran(pattern):
+              cases = [c for f in glob.glob(pattern, recursive=True) for c in ET.parse(f).getroot().iter("testcase")]
+              return [c for c in cases if c.find("skipped") is None]
+          a = ran("android/core/sync/build/test-results/**/*CrossClientE2ETest*.xml")
+          w = ran("web/playwright-qa5-junit.xml")
+          print(f"QA-5: android {len(a)} executed, web {len(w)} executed")
+          raise SystemExit(0 if a and w else 1)
+          PY
+          exit $(( android_status || pw_status ))
       - name: Test summary (which suites ran)
         if: always()
         run: |
           python3 .github/scripts/test_summary.py "Shared + server tests" "shared/build/test-results/**/*.xml" "server/build/test-results/**/*.xml"
-          python3 .github/scripts/test_summary.py "Browser tests (Playwright)" "web/playwright-junit.xml"
+          python3 .github/scripts/test_summary.py "Browser tests (Playwright)" "web/playwright-junit.xml" "web/playwright-qa5-junit.xml"
+          python3 .github/scripts/test_summary.py "Android against the real server" "android/core/sync/build/test-results/**/*.xml"
       - name: Report failures as annotations
         if: failure()
-        run: python3 .github/scripts/report_failures.py gradle-shared.log gradle-server.log server-run.log vitest-e2e.log web-build.log playwright.log gradle-android-e2e.log
+        run: python3 .github/scripts/report_failures.py gradle-shared.log gradle-server.log server-run.log vitest-e2e.log web-build.log playwright.log gradle-android-e2e.log gradle-qa5.log playwright-qa5.log
       - name: Upload test reports
         if: failure()
         uses: actions/upload-artifact@v4

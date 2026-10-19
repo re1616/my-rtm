@@ -10,6 +10,7 @@ import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.performTouchInput
@@ -80,7 +81,7 @@ class FakeAuth(context: Context, var user: String? = USER) : AuthRepository(
  * repository and sync queue; only the network is absent.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], qualifiers = "w411dp-h891dp") // a typical phone
 class MainScreenTest {
 
     @get:Rule
@@ -159,19 +160,20 @@ class MainScreenTest {
         compose.onNodeWithText("Old name").performClick()
         compose.onNodeWithTag("task_detail").assertIsDisplayed()
 
-        compose.onNodeWithTag("detail_name").performTextReplacement("New name")
-        compose.onNodeWithTag("detail_name_save").performClick()
+        compose.onNodeWithTag("detail_name").performScrollTo().performTextReplacement("New name")
+        compose.onNodeWithTag("detail_name_save").performScrollTo().performClick()
         compose.waitUntil(5_000) { runBlocking { db.taskDao().getById(t.id) }?.name == "New name" }
 
-        compose.onNodeWithTag("add_note").performTextInput("Call before 5")
-        compose.onNodeWithTag("add_note_send").performClick()
+        compose.onNodeWithTag("add_note").performScrollTo().performTextInput("Call before 5")
+        compose.onNodeWithTag("add_note_send").performScrollTo().performClick()
+        compose.waitUntil(5_000) { runBlocking { db.noteDao().forTaskNow(t.id) }.map { it.content } == listOf("Call before 5") }
         waitForText("Call before 5")
 
-        compose.onNodeWithTag("priority_1").performClick()
+        compose.onNodeWithTag("priority_1").performScrollTo().performClick()
         compose.waitUntil(5_000) { runBlocking { db.taskDao().getById(t.id) }?.priority == 1 }
 
-        compose.onNodeWithTag("detail_due").performTextReplacement("2030-01-15")
-        compose.onNodeWithTag("detail_due_save").performClick()
+        compose.onNodeWithTag("detail_due").performScrollTo().performTextReplacement("2030-01-15")
+        compose.onNodeWithTag("detail_due_save").performScrollTo().performClick()
         compose.waitUntil(5_000) { runBlocking { db.taskDao().getById(t.id) }?.dueAt != null }
 
         compose.onNodeWithTag("back").performClick()
@@ -240,9 +242,10 @@ class MainScreenTest {
     fun settingsPatchReminderOffsets() {
         show()
         compose.onNodeWithTag("open_drawer").performClick()
-        compose.onNodeWithTag("nav_settings").performClick()
+        compose.onNodeWithTag("nav_settings").performScrollTo().performClick()
+        compose.waitUntil(5_000) { vm.screen.value == MainViewModel.Screen.SETTINGS }
         compose.waitUntil(5_000) { compose.onAllNodes(hasTestTag("offset_60")).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithTag("offset_60").performClick()
+        compose.onNodeWithTag("offset_60").performScrollTo().performClick()
         compose.waitUntil(5_000) { auth.patches.isNotEmpty() }
         assertEquals("[15,60]", auth.patches.last()["reminderOffsets"].toString())
     }
@@ -251,7 +254,9 @@ class MainScreenTest {
     fun drawerSwitchesToToday_andNewTasksThereGetTodaysDate() {
         show()
         compose.onNodeWithTag("open_drawer").performClick()
-        compose.onNodeWithTag("nav_today").performClick()
+        compose.onNodeWithTag("nav_today").performScrollTo().performClick()
+        compose.waitUntil(5_000) { vm.view.value == TaskView.Sys(TaskView.System.TODAY) }
+        compose.waitForIdle()
         compose.onNodeWithTag("smart_add").performTextInput("Pay rent")
         compose.onNodeWithTag("smart_add_send").performClick()
         waitForText("Pay rent")

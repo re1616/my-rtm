@@ -1,6 +1,6 @@
 # STATUS.md — Taskly (my-rtm)
 
-Последнее обновление: Oct 18 2026 · ветка: milestone/m3b
+Последнее обновление: Oct 19 2026 · ветка: milestone/m4 (M4 + M5 + M6)
 
 Легенда:
 - ✅ **готово (тест)** — реализовано, покрыто тестом (файл)
@@ -31,11 +31,11 @@
 | --- | --- | --- |
 | SYNC-1 | ✅ готово (тест) | Savepoint на операцию; статусы `ok` / `rejected` / `forbidden` / `not_found` / `conflict_resolved` / `error` — `IntegrationTestSync`, `SyncIntegrationTest` |
 | SYNC-2 | ✅ готово (тест) | Идемпотентность `(user_id, op_id)` |
-| SYNC-3 | 🔶 каркас | MergeEngine существует |
+| SYNC-3 | ✅ готово (тест) | Сервер сливает поля по версиям (общий `MergeEngine`); заметки — по `baseVersion`, более новая серверная версия возвращается как `conflict_resolved`; клиенты показывают диалог для названия и заметок — `TaskCardIntegrationTest`, `SyncEngineM4Test`, `MainScreenTest` |
 | SYNC-4 | ✅ готово (тест) | `RecurrenceCountIntegrationTest.kt` — COUNT, DST |
 | SYNC-5 | ✅ готово (тест) | `QueryParser`/`SqlBuilder` — `SyncIntegrationTest.kt` |
-| SYNC-6 | 🔶 частично | Сервер: дельты списков, тегов, локаций. Веб применяет все три (`pullChanges.test.ts`, E2E против сервера). Android: задачи и списки, теги и локации — нет |
-| SYNC-7 | 🔶 частично | Сервер: `Taskly-Sync-Version`, 426. Веб шлёт заголовок. Android — нет (без заголовка = текущая версия) |
+| SYNC-6 | ✅ готово (тест) | Дельты задач, списков, тегов, мест, заметок, вложений — сервер, веб (`pullChanges.test.ts`) и Android (`SyncEngineM4Test`) |
+| SYNC-7 | ✅ готово (тест) | Сервер: `Taskly-Sync-Version`, 426. Веб и Android шлют заголовок (`TasklyApiClient.SYNC_PROTOCOL_VERSION`) |
 
 ## 3. Веб
 
@@ -65,15 +65,19 @@
 
 | ID | Статус | Тест / файл |
 | --- | --- | --- |
-| AND-S1 | ✅ готово (тест) | `core/database/.../MigrationTest.kt` |
-| AND-S2 | ✅ готово (тест) | `TaskRepository` — атомарная запись |
-| AND-S3 | ✅ готово (тест) | `OfflineSyncTest`, `RealServerSyncE2ETest` |
-| AND-S4 | 🔶 каркас | Дельта по курсору есть; WebSocket/FCM не сделаны |
-| AND-S5 | ❌ не начато | MergeEngine не подключён |
-| AND-S6 | ❌ не начато | Снимок при первом входе |
-| AND-S7 | ❌ не начато | FTS5 |
-| AND-N1…N5 | ❌ не начато | v1.1 |
-| CI Android | ✅ | `assembleDebug`, unit-тесты, E2E с сервером |
+| AND-S1 | ✅ готово (тест) | Room v3 (заметки, вложения, места, конфликты, FTS), миграция 2→3 без потери данных — `MigrationTest.kt` |
+| AND-S2 | ✅ готово (тест) | `TaskRepository` — изменение и операция в одной транзакции — `OfflineSyncTest` |
+| AND-S3 | ✅ готово (тест) | Отправка сразу при активном приложении, в фоне WorkManager с экспоненциальной задержкой — `OfflineSyncTest`, `RealServerSyncE2ETest` |
+| AND-S4 | ✅ готово (тест) | WebSocket при видимом приложении (`RealtimeClient`, `ProcessLifecycleOwner`), FCM data-сообщение `sync` → `OneTimeWorkRequest` (`TasklyMessagingService`), страховая синхронизация раз в 6 ч; сервер будит устройства владельца при изменениях — `FcmIntegrationTest`, `SyncEngineM4Test` |
+| AND-S5 | ✅ готово (тест) | Слияние на сервере общим `MergeEngine`; конфликт названия/заметки сохраняется локально и показывается диалогом «Оставить моё / серверное» — `SyncEngineM4Test`, `MainScreenTest` |
+| AND-S6 | ✅ готово (тест) | Первый вход — снимок страницами по 1 000 с прогрессом на экране, список доступен после первой страницы — `SyncEngineM4Test`, `MainScreenTest` (баннер) |
+| AND-S7 | ✅ готово (тест) | Офлайн-поиск по FTS4 (Room поддерживает FTS3/FTS4; FTS5 в Room нет), умные списки и поиск запросом — общий предикат из `shared` — `SyncEngineM4Test`, `MainScreenTest` |
+| AND-N1 | ✅ готово (тест) | Будильники на 7 дней вперёд (`setExactAndAllowWhileIdle`), перепланирование после синхронизации, смены часового пояса/времени, `BOOT_COMPLETED`, обновления приложения, изменения разрешения — `RemindersTest` |
+| AND-N2 | ✅ готово (тест) | Запрос `POST_NOTIFICATIONS` и переход к разрешению точных будильников в настройках с пояснением; без него — неточные будильники, а устройство регистрируется на сервере с `exactAlarms=false`, и сервер присылает напоминание через FCM — `FcmIntegrationTest`, `MainScreenTest` |
+| AND-N3 | ✅ готово (тест) | «Выполнить» / «Отложить на 1 ч» из уведомления — sync-операции без открытия интерфейса; нажатие открывает карточку задачи — `RemindersTest` |
+| AND-N4, N5 | ❌ не начато | v1.1 |
+| AND-UI | ✅ готово (тест) | Compose: боковое меню (системные виды, списки, умные списки, теги), свайп вправо — выполнить, влево — отложить, snackbar «Отменить», Smart Add общим парсером, вкладки «Невыполненные/Выполненные», баннеры снимка/офлайна/ошибки, карточка задачи (свойства, срок текстом, теги, подзадачи, заметки, вложения), поиск, настройки напоминаний, вход/регистрация/2FA/сброс пароля, две панели при ширине ≥ 840 dp; строки RU/EN — `MainScreenTest` (Robolectric, 12 сценариев) |
+| CI Android | ✅ | `assembleDebug`, unit- и Compose UI-тесты (Robolectric), E2E с сервером, межклиентский E2E (QA-5) |
 
 ## Прочее
 
@@ -85,6 +89,8 @@
 | CI Shared+Server+Web | ✅ | зелёный на `main` |
 | CI Playwright E2E | ✅ | `web-playwright` job в ci.yml |
 | CI Android | ✅ | см. раздел 4 |
+| QA-5 | ✅ готово (тест) | Задача, созданная офлайн в Android (`CrossClientE2ETest`, рабочий sync-движок под Robolectric), видна в веб-приложении в браузере ≤ 2 с (`web/e2e/crossClient.pw.ts`); обе половины запускаются одновременно в CI, шаг падает, если любая пропущена. Эмулятор не используется |
+| QA-6 | 🔶 | k6-сценарий `load/k6-sync.js` (WebSocket-соединения + sync-пакеты с постоянной частотой, порог p95 < 2 с) и `load.yml`: ночной smoke-профиль на раннере; целевой профиль (10 000 WS, 500 пакетов/с) — ручной запуск против staging, которого нет |
 
 ---
 
@@ -96,3 +102,23 @@
 - Локализация сделана своим модулем (gettext-подход: русская строка — ключ, `Intl.PluralRules` для множественного числа), а не ICU MessageFormat.
 - Подзадачи следующего экземпляра повторяющейся задачи не копируются (теги и заметки копируются).
 - Серверные «Входящие» определяются по имени списка `Inbox`; пользовательский список с таким же именем сервер считает входящими.
+
+## Известные ограничения после M4–M6
+
+- Android: FTS4 вместо FTS5 (Room не поддерживает FTS5); поиск по названию, тегам и заметкам.
+- Android: язык интерфейса — по системе (RU/EN ресурсы); динамические цвета, скелетоны, haptic, drag-and-drop, виджеты, Maestro/Roborazzi и проверки на эмуляторах API 26/30/34/35 не делались — в CI только JVM-тесты (Robolectric).
+- Android: вложения только просматриваются (ссылки); загрузка файлов, как и в вебе, требует объектного хранилища.
+- Межклиентский E2E (QA-5) выполняется на каждом push, а не ночью: Android-сторона — рабочий sync-движок под Robolectric, не эмулятор.
+- Нагрузка (QA-6) на раннере проверяет уменьшенный профиль; полный профиль требует staging.
+
+## Внешние зависимости для боевого запуска
+
+| Что | Переменные | Без них |
+| --- | --- | --- |
+| Вход через Google | `GOOGLE_CLIENT_ID` (сервер), `VITE_GOOGLE_CLIENT_ID` (веб) | Кнопка Google скрыта, вход по email работает |
+| Почта (сброс пароля, email-напоминания, сводка) | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, `SMTP_FROM` | В dev письма пишутся в лог; вне dev сервер не стартует (CFG-2) |
+| Web Push | `VAPID_PUBLIC_KEY`, `VAPID_PRIVATE_KEY`, `VAPID_SUBJECT` | Web Push выключен (ключ не отдаётся клиенту); вне dev сервер не стартует (CFG-2) |
+| FCM (сервер) | `FCM_SERVER_KEY` — JSON сервисного аккаунта Firebase (строкой, base64 или путь к файлу) | Пробуждение устройств и серверные напоминания для Android выключены; WebSocket, периодическая синхронизация и локальные будильники работают |
+| FCM (Android) | Gradle-свойства/переменные `TASKLY_FCM_PROJECT_ID`, `TASKLY_FCM_APP_ID`, `TASKLY_FCM_API_KEY`, `TASKLY_FCM_SENDER_ID` | Приложение работает без push |
+| Адрес API для Android | `SyncSession.baseUrl` (по умолчанию `http://10.0.2.2:8080` для эмулятора); HTTP разрешён только для 10.0.2.2/localhost | — |
+| Staging для QA-6 | `load.yml` → `base_url` | Только smoke-профиль на раннере |

@@ -1,0 +1,101 @@
+name: Load (QA-6)
+
+# Smoke profile on the runner every night and on demand. The production target
+# (10 000 sockets, 500 sync batches/s, p95 ≤ 2 s) is run against staging with the inputs below.
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Server to test (empty = start one on the runner)"
+        required: false
+        default: ""
+      ws_connections:
+        description: "WebSocket connections"
+        default: "1000"
+      sync_rate:
+        description: "Sync batches per second"
+        default: "100"
+      duration:
+        description: "Duration of the sync phase"
+        default: "1m"
+
+jobs:
+  k6:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: taskly
+          POSTGRES_PASSWORD: taskly
+          POSTGRES_DB: taskly
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U taskly"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7
+        ports: ["6379:6379"]
+    env:
+      PGHOST: localhost
+      PGPORT: "5432"
+      PGDATABASE: taskly
+      PGUSER: taskly
+      PGPASSWORD: taskly
+      REDIS_HOST: localhost
+      REDIS_PORT: "6379"
+      JWT_SECRET: load-only-secret-0123456789abcdef0123456789abcdef
+      RATE_LIMIT_AUTH_BURST: "100000"
+      RATE_LIMIT_AUTH_PER_SECOND: "10000"
+      RATE_LIMIT_BURST: "100000"
+      RATE_LIMIT_PER_SECOND: "10000"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-java@v5
+        if: inputs.base_url == ''
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: gradle/actions/setup-gradle@v4
+        if: inputs.base_url == ''
+      - name: Start the server on the runner
+        if: inputs.base_url == ''
+        shell: bash
+        run: |
+          psql -h localhost -U taskly -d taskly -c "CREATE EXTENSION IF NOT EXISTS pg_trgm; CREATE EXTENSION IF NOT EXISTS pgcrypto;"
+          nohup ./gradlew :server:run --console=plain > server-run.log 2>&1 &
+          for i in $(seq 1 120); do curl -sf http://localhost:8080/health && exit 0; sleep 2; done
+          tail -50 server-run.log; exit 1
+      - uses: grafana/setup-k6-action@v1
+      - name: Run k6
+        shell: bash
+        env:
+          BASE_URL: ${{ inputs.base_url || 'http://localhost:8080' }}
+          WS_CONNECTIONS: ${{ inputs.ws_connections || '1000' }}
+          SYNC_RATE: ${{ inputs.sync_rate || '100' }}
+          DURATION: ${{ inputs.duration || '1m' }}
+        run: |
+          ulimit -n 65535 || true
+          k6 run --summary-export k6-summary.json load/k6-sync.js 2>&1 | tee k6.log; status=${PIPESTATUS[0]}
+          python3 - <<'PY'
+          import json
+          s = json.load(open("k6-summary.json"))["metrics"]
+          def g(name, key):
+              for k, v in s.items():
+                  if k.startswith(name):
+                      return v.get(key)
+          lines = [
+              f"sync p95 = {g('http_req_duration{scenario:sync}', 'p(95)')} ms",
+              f"ws_connecting p95 = {g('ws_connecting', 'p(95)')} ms",
+              f"sync requests = {g('http_reqs', 'count')}",
+              f"ws sync_update messages = {g('ws_sync_updates', 'count')}",
+              f"checks pass rate = {g('checks', 'value')}",
+          ]
+          print("::notice title=k6 (QA-6)::" + "%0A".join(lines))
+          PY
+          exit $status
+      - name: Server log on failure
+        if: failure()
+        run: tail -100 server-run.log || true

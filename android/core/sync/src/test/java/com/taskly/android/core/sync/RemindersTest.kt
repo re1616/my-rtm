@@ -108,10 +108,10 @@ class RemindersTest {
     fun notificationHasCompleteAndSnoozeActions() {
         shadowOf(context as Application).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
         ReminderScheduler.notify(context, "t1", "Call mom")
-        val nm = shadowOf(context.getSystemService(NotificationManager::class.java))
-        val n = nm.allNotifications.single()
+        val manager = context.getSystemService(NotificationManager::class.java)
+        val n = shadowOf(manager).allNotifications.single()
         assertEquals(2, n.actions.size)
-        assertNotNull(nm.getNotificationChannel(ReminderScheduler.CHANNEL_ID))
+        assertNotNull(manager.getNotificationChannel(ReminderScheduler.CHANNEL_ID))
     }
 
     @Test
