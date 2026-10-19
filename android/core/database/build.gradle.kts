@@ -44,6 +44,13 @@ kapt {
     }
 }
 
+// Room writes the schema JSON as a side effect of kapt. A build-cache hit would skip it and
+// leave a new schema version missing for MigrationTestHelper, so annotation processing here
+// is never taken from the cache (the module is small).
+tasks.matching { it.name.startsWith("kapt") && it.name.endsWith("Kotlin") }.configureEach {
+    outputs.cacheIf { false }
+}
+
 configurations.configureEach {
     // Room 2.8.x bundles an older kotlin-metadata-jvm that can't read Kotlin 2.4 metadata
     resolutionStrategy.eachDependency {

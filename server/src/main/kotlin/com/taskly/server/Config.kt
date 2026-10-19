@@ -89,6 +89,9 @@ object Config {
         maxBatchSize = config.getInt("sync.maxBatchSize")
     )
 
+    /** Threads that run request handlers (they block on JDBC and Redis). */
+    val callThreads: Int = config.getInt("server.callThreads")
+
     val push = PushConfig(
         fcmServerKey = config.getString("fcmServerKey"),
         vapidPublicKey = config.getString("vapidPublicKey"),

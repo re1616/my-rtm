@@ -77,22 +77,43 @@ jobs:
           SYNC_RATE: ${{ inputs.sync_rate || '100' }}
           DURATION: ${{ inputs.duration || '1m' }}
         run: |
+          set +e # report the numbers even when a threshold fails
           ulimit -n 65535 || true
+          nproc > cpus.txt
+          vmstat 5 > vmstat.log &
           k6 run --summary-export k6-summary.json load/k6-sync.js 2>&1 | tee k6.log; status=${PIPESTATUS[0]}
           python3 - <<'PY'
           import json
           s = json.load(open("k6-summary.json"))["metrics"]
+          lines = []
           def g(name, key):
               for k, v in s.items():
                   if k.startswith(name):
                       return v.get(key)
-          lines = [
+          lines += [
               f"sync p95 = {g('http_req_duration{scenario:sync}', 'p(95)')} ms",
               f"ws_connecting p95 = {g('ws_connecting', 'p(95)')} ms",
               f"sync requests = {g('http_reqs', 'count')}",
               f"ws sync_update messages = {g('ws_sync_updates', 'count')}",
               f"checks pass rate = {g('checks', 'value')}",
+              f"sync ops not ok = {g('sync_ops_not_ok', 'count')}",
+              f"http_req_failed = {g('http_req_failed', 'value')}",
           ]
+          # Every threshold with k6's verdict (in --summary-export, true means the threshold was crossed)
+          for k, v in sorted(s.items()):
+              for t, crossed in (v.get("thresholds") or {}).items():
+                  lines.append(f"threshold {k} {t}: {'FAILED' if crossed else 'ok'}")
+          root = json.load(open("k6-summary.json")).get("root_group", {})
+          for name, c in (root.get("checks") or {}).items():
+              lines.append(f"check '{name}': {c.get('passes')} passed, {c.get('fails')} failed")
+          # Where the CPU went on the runner (k6 shares it with the server, PostgreSQL and Redis)
+          import subprocess
+          rows = [l.split() for l in open("vmstat.log") if l.strip() and l.split()[0].isdigit()]
+          if rows:
+              idle = [int(r[14]) for r in rows[1:]] or [int(rows[0][14])]
+              lines.append(f"runner CPUs = {open('cpus.txt').read().strip()}, mean idle during the run = {sum(idle) / len(idle):.0f}%")
+          ps = subprocess.run(["ps", "-eo", "comm,time", "--sort=-time"], capture_output=True, text=True).stdout.splitlines()[1:8]
+          lines.append("CPU time by process: " + ", ".join(" ".join(p.split()) for p in ps))
           print("::notice title=k6 (QA-6)::" + "%0A".join(lines))
           PY
           exit $status

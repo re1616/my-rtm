@@ -23,6 +23,7 @@ import io.ktor.server.testing.testApplication
 import io.ktor.websocket.Frame
 import io.ktor.websocket.readText
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeout
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonNull
@@ -164,6 +165,49 @@ class SnapshotAndRealtimeIntegrationTest {
             }
             assertNull(leaked, "changes of another user must not reach this socket")
         }
+    }
+
+    /**
+     * Regression (QA-6 load test): each socket used to hold a pooled Redis connection and a
+     * thread, so ~30 sockets hung every request. Now 100 sockets — more than the pool (64) —
+     * share one subscription, requests still answer and every socket gets the update.
+     */
+    @Test
+    fun `many open sockets do not exhaust Redis, and all of them get the update`() = testApplication {
+        application { moduleForTest() }
+        val token = client.register("wsmany")
+        val ws = createClient { install(WebSockets) }
+        val sockets = 100
+        val authed = java.util.concurrent.atomic.AtomicInteger()
+        val allAuthed = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val created = kotlinx.coroutines.CompletableDeferred<String>()
+        val received = java.util.concurrent.atomic.AtomicInteger()
+
+        kotlinx.coroutines.coroutineScope {
+            repeat(sockets) {
+                launch {
+                    ws.webSocket("/v1/ws") {
+                        send(Frame.Text("""{"type":"auth","payload":"{\"token\":\"$token\"}"}"""))
+                        assertEquals("auth_ok", json.parseToJsonElement((incoming.receive() as Frame.Text).readText()).jsonObject.str("type"))
+                        if (authed.incrementAndGet() == sockets) allAuthed.complete(Unit)
+                        val id = created.await()
+                        withTimeout(10_000) {
+                            while (true) {
+                                val msg = json.parseToJsonElement((incoming.receive() as Frame.Text).readText()).jsonObject
+                                if (msg.str("type") == "sync_update" && json.parseToJsonElement(msg.str("payload")).jsonObject.str("entityId") == id) break
+                            }
+                        }
+                        received.incrementAndGet()
+                    }
+                }
+            }
+            withTimeout(30_000) { allAuthed.await() }
+            val started = System.currentTimeMillis()
+            val id = withTimeout(5_000) { client.postJson("/v1/tasks", """{"name":"to all sockets"}""", token).obj().str("id") }
+            assertTrue(System.currentTimeMillis() - started < 5_000, "a request is answered while $sockets sockets are open")
+            created.complete(id)
+        }
+        assertEquals(sockets, received.get(), "every socket received the change")
     }
 
     // ── Helpers ──

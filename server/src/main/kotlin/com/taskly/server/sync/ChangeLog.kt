@@ -62,11 +62,17 @@ object ChangeLog {
     /**
      * Publishes WebSocket signals. Must be called only AFTER the transaction committed,
      * otherwise clients may fetch the delta before the data is visible.
+     *
+     * A signal only tells clients to pull from their cursor, so one message per user and
+     * scope is enough: a batch of N operations sends its last change (the highest `seq`)
+     * instead of N messages to every open device (QA-6: fan-out dominated the load test).
      */
     fun publish(changes: List<Change>) {
+        if (changes.isEmpty()) return
         // Android apps in the background get a FCM wake-up (AND-S4)
-        if (changes.isNotEmpty()) com.taskly.server.push.DeviceNotifier.changed(changes.map { it.userId })
-        for (c in changes) {
+        com.taskly.server.push.DeviceNotifier.changed(changes.map { it.userId }.distinct())
+        val latest = changes.groupBy { it.userId to it.scope }.values.map { group -> group.maxBy { it.seq } }
+        for (c in latest) {
             val message = buildJsonObject {
                 put("seq", c.seq)
                 put("scope", c.scope)

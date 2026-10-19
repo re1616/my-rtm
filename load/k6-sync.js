@@ -11,8 +11,9 @@ import { uuidv4 } from 'https://jslib.k6.io/k6-utils/1.4.0/index.js';
 
 const BASE = __ENV.BASE_URL || 'http://localhost:8080';
 const WS_URL = BASE.replace(/^http/, 'ws') + '/v1/ws';
-const USERS = Number(__ENV.USERS || 50);
 const WS_CONNECTIONS = Number(__ENV.WS_CONNECTIONS || 200);
+// Realistic fan-out: about two open devices per account (web + phone)
+const USERS = Number(__ENV.USERS || Math.ceil(WS_CONNECTIONS / 2));
 const SYNC_RATE = Number(__ENV.SYNC_RATE || 50);
 const DURATION = __ENV.DURATION || '1m';
 const OPS_PER_BATCH = Number(__ENV.OPS_PER_BATCH || 5);
@@ -21,7 +22,7 @@ const syncUpdates = new Counter('ws_sync_updates');
 const syncRejected = new Counter('sync_ops_not_ok');
 
 export const options = {
-  setupTimeout: '5m',
+  setupTimeout: '15m',
   scenarios: {
     sockets: {
       executor: 'per-vu-iterations',

@@ -3,7 +3,7 @@ package com.taskly.server.redis
 import com.taskly.server.RedisConfig
 import redis.clients.jedis.JedisPool
 import redis.clients.jedis.JedisPoolConfig
-import redis.clients.jedis.JedisPubSub
+import redis.clients.jedis.Jedis
 
 /**
  * Redis service using Jedis connection pool.
@@ -11,17 +11,22 @@ import redis.clients.jedis.JedisPubSub
  */
 object RedisService {
     private var pool: JedisPool? = null
+    @Volatile
+    private var config: RedisConfig? = null
 
     @Volatile
     private var bucketSha: String? = null
 
     fun init(config: RedisConfig) {
+        this.config = config
         val poolConfig = JedisPoolConfig().apply {
-            maxTotal = 32
-            maxIdle = 8
+            maxTotal = 64
+            maxIdle = 16
             minIdle = 2
             testOnBorrow = true
             testOnReturn = true
+            // Never wait forever for a connection: a request fails fast instead of hanging
+            setMaxWait(java.time.Duration.ofSeconds(2))
         }
         pool = JedisPool(poolConfig, config.host, config.port, 2000)
     }
@@ -29,13 +34,12 @@ object RedisService {
     fun getPool(): JedisPool = pool ?: throw IllegalStateException("Redis not initialized")
 
     /**
-     * Subscribe to a channel. Blocks the current thread.
-     * Use a separate thread for long-lived subscriptions.
+     * A dedicated connection outside the pool, for the long-lived subscription of
+     * [RedisFanout] (a blocking subscribe must not occupy a pooled connection).
      */
-    fun subscribe(jedisPubSub: JedisPubSub, vararg channels: String) {
-        getPool().resource.use { jedis ->
-            jedis.subscribe(jedisPubSub, *channels)
-        }
+    fun newConnection(): Jedis {
+        val c = config ?: throw IllegalStateException("Redis not initialized")
+        return Jedis(c.host, c.port, 2000, 0)
     }
 
     /**
@@ -123,6 +127,7 @@ object RedisService {
     }
 
     fun close() {
+        RedisFanout.stop()
         pool?.close()
         pool = null
     }
