@@ -181,9 +181,12 @@ jobs:
       - name: Build Android debug APK
         shell: bash
         run: ./gradlew :android:app:assembleDebug --console=plain 2>&1 | tee gradle-android.log; exit ${PIPESTATUS[0]}
-      - name: Android unit tests (Room, sync)
+      - name: Android unit tests (Room, sync, reminders, Compose UI)
         shell: bash
-        run: ./gradlew :android:core:database:testDebugUnitTest :android:core:sync:testDebugUnitTest --console=plain 2>&1 | tee gradle-database-test.log; exit ${PIPESTATUS[0]}
+        run: ./gradlew :android:core:database:testDebugUnitTest :android:core:sync:testDebugUnitTest :android:feature:tasks:testDebugUnitTest --console=plain --continue 2>&1 | tee gradle-database-test.log; exit ${PIPESTATUS[0]}
+      - name: Android test summary
+        if: always()
+        run: python3 .github/scripts/test_summary.py "Android unit tests" "android/**/build/test-results/testDebugUnitTest/*.xml"
       - name: Report failures as annotations
         if: failure()
         run: python3 .github/scripts/report_failures.py gradle-android.log gradle-database-test.log
@@ -195,3 +198,4 @@ jobs:
           path: |
             android/core/database/build/reports/tests
             android/core/sync/build/reports/tests
+            android/feature/tasks/build/reports/tests

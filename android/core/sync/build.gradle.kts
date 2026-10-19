@@ -23,6 +23,11 @@ android {
             jvmTarget.set(org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17)
         }
     }
+
+    testOptions {
+        // Reminder notifications read string resources under Robolectric
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 dependencies {
@@ -30,6 +35,7 @@ dependencies {
     implementation(project(":android:core:database"))
     implementation(project(":android:core:network"))
     implementation(libs.workmanager)
+    implementation(libs.androidx.core.ktx)
     implementation(libs.kotlinx.coroutines.core)
     implementation(libs.kotlinx.serialization.json)
     implementation(libs.kotlinx.datetime)

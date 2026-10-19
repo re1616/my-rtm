@@ -32,7 +32,9 @@ private data class RegisterRequest(
 @Serializable
 private data class LoginRequest(
     val email: String,
-    val password: String
+    val password: String,
+    /** Authenticator code when the account has two-factor authentication. */
+    val totpCode: String? = null,
 )
 
 @Serializable
@@ -173,7 +175,7 @@ data class AccountSettingsDto(
 )
 
 @Serializable
-private data class DeviceDto(val token: String, val platform: String = "android")
+private data class DeviceDto(val token: String, val platform: String = "android", val exactAlarms: Boolean = true)
 
 // ── Client ──
 
@@ -187,9 +189,9 @@ open class TasklyApiClient(private val httpClient: HttpClient) {
         return response.body()
     }
 
-    open suspend fun login(email: String, password: String): AuthResult {
+    open suspend fun login(email: String, password: String, totpCode: String? = null): AuthResult {
         val response = httpClient.post("/v1/auth/login") {
-            setBody(LoginRequest(email, password))
+            setBody(LoginRequest(email, password, totpCode))
         }
         return response.body()
     }
@@ -243,11 +245,22 @@ open class TasklyApiClient(private val httpClient: HttpClient) {
         httpClient.get("/v1/tasks/$taskId/notes") { bearerAuth(accessToken) }.body()
 
     /** FCM token of this device for background wake-ups (AND-S4). */
-    open suspend fun registerDevice(fcmToken: String, accessToken: String) {
+    open suspend fun registerDevice(fcmToken: String, accessToken: String, exactAlarms: Boolean = true) {
         httpClient.post("/v1/push/devices") {
             bearerAuth(accessToken)
-            setBody(DeviceDto(fcmToken))
+            setBody(DeviceDto(fcmToken, exactAlarms = exactAlarms))
         }
+    }
+
+    /** Account settings changed on this device (reminder defaults). */
+    open suspend fun patchAccountSettings(patch: JsonObject, accessToken: String): AccountSettingsDto =
+        httpClient.patch("/v1/account/settings") {
+            bearerAuth(accessToken)
+            setBody(patch)
+        }.body()
+
+    open suspend fun forgotPassword(email: String) {
+        httpClient.post("/v1/auth/password/forgot") { setBody(JsonObject(mapOf("email" to kotlinx.serialization.json.JsonPrimitive(email)))) }
     }
 
     open suspend fun accountSettings(accessToken: String): AccountSettingsDto =

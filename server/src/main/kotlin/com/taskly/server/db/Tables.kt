@@ -202,4 +202,5 @@ object PushDevicesTable {
     val USER_ID = DSL.field(DSL.name("user_id"), SQLDataType.UUID.nullable(false))
     val TOKEN = DSL.field(DSL.name("token"), SQLDataType.CLOB.nullable(false))
     val PLATFORM = DSL.field(DSL.name("platform"), SQLDataType.CLOB.nullable(false))
+    val EXACT_ALARMS = DSL.field(DSL.name("exact_alarms"), SQLDataType.BOOLEAN.nullable(false))
 }

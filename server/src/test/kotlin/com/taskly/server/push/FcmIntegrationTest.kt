@@ -158,6 +158,25 @@ class FcmIntegrationTest {
         DeviceNotifier.fcm = null
     }
 
+    @Test
+    fun `devices without exact alarms get reminders from the server (AND-N2)`() = testApplication {
+        application { moduleForTest() }
+        DeviceNotifier.fcm = sender
+        val (token, userId) = client.register("inexact")
+        client.postJson("/v1/push/devices", """{"token":"inexact-1","exactAlarms":false}""", token)
+        client.postJson("/v1/push/devices", """{"token":"exact-1","exactAlarms":true}""", token)
+        val due = java.time.Instant.now().plusSeconds(600)
+        val op = """{"opId":"${UUID.randomUUID()}","scope":"user:$userId","entity":"task","entityId":"${UUID.randomUUID()}","type":"create","fields":{"name":"Платёж","dueAt":"$due","dueHasTime":true}}"""
+        client.postJson("/v1/sync", """{"ops":[$op]}""", token)
+        messages.clear()
+
+        ReminderService.tick(java.time.Instant.now())
+        val reminders = messages.filter { it.second["data"]!!.jsonObject["type"]!!.jsonPrimitive.content == "reminder" }
+        assertEquals(listOf("inexact-1"), reminders.map { it.second["token"]!!.jsonPrimitive.content })
+        assertEquals("Платёж", reminders.single().second["data"]!!.jsonObject["title"]!!.jsonPrimitive.content)
+        DeviceNotifier.fcm = null
+    }
+
     private suspend fun HttpClient.register(prefix: String): Pair<String, String> {
         val r = postJson("/v1/auth/register", """{"email":"$prefix-${System.nanoTime()}@test.taskly","password":"Password123"}""")
         assertEquals(HttpStatusCode.Created, r.status, r.bodyAsText())

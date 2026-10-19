@@ -91,7 +91,8 @@ class SyncEngine(
     private val db: TasklyDatabase,
     private val api: TasklyApiClient,
 ) {
-    private val _status = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
+    // One status per process: the worker's engine and the UI's engine report to the same flow
+    private val _status = sharedStatus
     val status: StateFlow<SyncStatus> = _status.asStateFlow()
 
     /**
@@ -500,6 +501,11 @@ class SyncEngine(
 
         private val json = Json { ignoreUnknownKeys = true }
 
+        private val sharedStatus = MutableStateFlow<SyncStatus>(SyncStatus.Idle)
+
+        /** Sync status of this process (snapshot progress, offline, errors) for the UI. */
+        val processStatus: StateFlow<SyncStatus> = sharedStatus.asStateFlow()
+
         private val networkConstraint = Constraints.Builder()
             .setRequiredNetworkType(NetworkType.CONNECTED)
             .build()
@@ -559,7 +565,15 @@ class SyncWorker(
         val api = TasklyApiClient.create(session.baseUrl)
         val engine = SyncEngine(TasklyDatabase.getInstance(applicationContext), api)
         return try {
-            session.cursor = engine.syncNow(userId, SessionTokens(session, api), session.cursor) { session.cursor = it }
+            val tokens = SessionTokens(session, api)
+            session.cursor = engine.syncNow(userId, tokens, session.cursor) { session.cursor = it }
+            // Reminder defaults may have changed on another device; alarms follow the new data
+            tokens.accessToken()?.let { token ->
+                runCatching { api.accountSettings(token) }.getOrNull()?.let {
+                    com.taskly.android.core.sync.reminders.ReminderSettingsStore(applicationContext).settings = it
+                }
+            }
+            com.taskly.android.core.sync.reminders.ReminderScheduler.reschedule(applicationContext)
             SyncHooks.afterSync?.invoke(applicationContext)
             Result.success()
         } catch (_: Exception) {

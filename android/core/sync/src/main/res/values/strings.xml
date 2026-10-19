@@ -1,0 +1,6 @@
+<resources>
+    <string name="reminders_channel">Task reminders</string>
+    <string name="reminder_text">Due soon</string>
+    <string name="action_complete">Complete</string>
+    <string name="action_snooze">Snooze 1 h</string>
+</resources>

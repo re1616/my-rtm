@@ -27,6 +27,11 @@ android {
     buildFeatures {
         compose = true
     }
+
+    testOptions {
+        // Compose UI tests run on the JVM with Robolectric and read the real string resources
+        unitTests.isIncludeAndroidResources = true
+    }
 }
 
 configurations.configureEach {
@@ -66,5 +71,15 @@ dependencies {
     kapt(libs.hilt.compiler)
     kapt(libs.kotlin.metadata.jvm)
 
+    implementation(libs.ktor.client.core)
+
+    debugImplementation(libs.compose.ui.test.manifest)
     testImplementation(libs.kotlin.test)
+    testImplementation(libs.robolectric)
+    testImplementation(libs.androidx.test.core)
+    testImplementation(libs.compose.ui.test.junit4)
+    testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.ktor.client.mock)
+    testImplementation(libs.ktor.client.content.negotiation)
+    testImplementation(libs.ktor.serialization.json)
 }

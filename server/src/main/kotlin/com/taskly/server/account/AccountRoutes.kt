@@ -37,7 +37,7 @@ data class PushSubscriptionRequest(val endpoint: String, val keys: PushKeys)
 data class PushUnsubscribeRequest(val endpoint: String)
 
 @Serializable
-data class DeviceRequest(val token: String, val platform: String = "android")
+data class DeviceRequest(val token: String, val platform: String = "android", val exactAlarms: Boolean = true)
 
 @Serializable
 data class VapidKeyResponse(val publicKey: String)
@@ -113,9 +113,11 @@ fun Route.accountRoutes() {
             .set(PushDevicesTable.USER_ID, userId)
             .set(PushDevicesTable.TOKEN, r.token)
             .set(PushDevicesTable.PLATFORM, r.platform)
+            .set(PushDevicesTable.EXACT_ALARMS, r.exactAlarms)
             .onConflict(PushDevicesTable.TOKEN)
             .doUpdate()
             .set(PushDevicesTable.USER_ID, userId)
+            .set(PushDevicesTable.EXACT_ALARMS, r.exactAlarms)
             .execute()
         call.respond(HttpStatusCode.Created, buildJsonObject { put("status", "registered") })
     }
