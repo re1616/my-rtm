@@ -2,6 +2,7 @@ package com.taskly.server.account
 
 import com.taskly.server.auth.AuthService
 import com.taskly.server.db.Database
+import com.taskly.server.db.PushDevicesTable
 import com.taskly.server.db.PushSubscriptionsTable
 import com.taskly.server.errors.NotFoundException
 import com.taskly.server.push.PushEndpoints
@@ -34,6 +35,9 @@ data class PushSubscriptionRequest(val endpoint: String, val keys: PushKeys)
 
 @Serializable
 data class PushUnsubscribeRequest(val endpoint: String)
+
+@Serializable
+data class DeviceRequest(val token: String, val platform: String = "android")
 
 @Serializable
 data class VapidKeyResponse(val publicKey: String)
@@ -99,6 +103,31 @@ fun Route.accountRoutes() {
             .execute()
         call.respond(HttpStatusCode.NoContent)
     }
+    // ── Android devices for FCM wake-ups (AND-S4) ──
+    post("/v1/push/devices") {
+        val userId = UUID.fromString(requireUserId(call))
+        val r = call.receive<DeviceRequest>()
+        require(r.token.isNotBlank() && r.token.length <= 4096) { "token is required" }
+        require(r.platform == "android") { "platform must be android" }
+        Database.ctx().insertInto(PushDevicesTable.TABLE)
+            .set(PushDevicesTable.USER_ID, userId)
+            .set(PushDevicesTable.TOKEN, r.token)
+            .set(PushDevicesTable.PLATFORM, r.platform)
+            .onConflict(PushDevicesTable.TOKEN)
+            .doUpdate()
+            .set(PushDevicesTable.USER_ID, userId)
+            .execute()
+        call.respond(HttpStatusCode.Created, buildJsonObject { put("status", "registered") })
+    }
+    delete("/v1/push/devices") {
+        val userId = UUID.fromString(requireUserId(call))
+        val r = call.receive<DeviceRequest>()
+        Database.ctx().deleteFrom(PushDevicesTable.TABLE)
+            .where(PushDevicesTable.USER_ID.eq(userId), PushDevicesTable.TOKEN.eq(r.token))
+            .execute()
+        call.respond(HttpStatusCode.NoContent)
+    }
+
     /** "Send a test notification" in the settings. */
     post("/v1/push/test") {
         val userId = UUID.fromString(requireUserId(call))

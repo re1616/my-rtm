@@ -25,6 +25,8 @@ fun main() {
     com.taskly.server.push.WebPush.init(Config.push.vapidPublicKey, Config.push.vapidPrivateKey, Config.push.vapidSubject)
     // Reminders and the daily digest (WEB-F8)
     com.taskly.server.push.ReminderService.start()
+    // Android background wake-ups via FCM (service-account JSON in FCM_SERVER_KEY)
+    com.taskly.server.push.DeviceNotifier.init(Config.push.fcmServerKey)
 
     embeddedServer(Netty, port = 8080, host = "0.0.0.0") {
         configureSerialization()

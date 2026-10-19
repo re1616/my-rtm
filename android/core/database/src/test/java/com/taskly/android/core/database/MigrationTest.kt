@@ -160,7 +160,35 @@ class MigrationTest {
         db.close()
     }
 
+    /**
+     * v2 → v3 (M4): new tables (notes, attachments, locations, conflicts), the FTS4 search table,
+     * tasks.location_id and sync_queue.base_version. Existing tasks become searchable.
+     */
+    @Test
+    fun migration2To3_addsEntitiesAndSearch_keepsTasksAndQueue() {
+        helper.createDatabase(TEST_DB_V3, 2).apply {
+            execSQL(
+                "INSERT INTO tasks (id, owner_id, list_id, name, due_has_time, postponed_count, version, sort_order, created_at, updated_at) " +
+                    "VALUES ('t1', 'u1', 'l1', 'Купить молоко', 0, 0, 1, 0, '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z')"
+            )
+            execSQL(
+                "INSERT INTO sync_queue (opId, entity_type, entity_id, operation_type, scope, fields, created_at, retry_count, status) " +
+                    "VALUES ('op1', 'task', 't1', 'create', 'user:u1', '{}', '2026-01-01T00:00:00Z', 0, 'pending')"
+            )
+            close()
+        }
+        val db = helper.runMigrationsAndValidate(TEST_DB_V3, 3, true, TasklyDatabase.MIGRATION_2_3)
+        db.query("SELECT task_id FROM task_search WHERE task_search MATCH 'МОЛОКО'").use {
+            assert(it.moveToFirst() && it.getString(0) == "t1") { "existing tasks must be searchable (case-insensitive)" }
+        }
+        db.query("SELECT location_id FROM tasks WHERE id = 't1'").use { assert(it.moveToFirst() && it.isNull(0)) }
+        db.query("SELECT base_version FROM sync_queue WHERE opId = 'op1'").use { assert(it.moveToFirst() && it.isNull(0)) { "queued ops survive" } }
+        db.execSQL("INSERT INTO notes (id, task_id, content, version, created_at, updated_at) VALUES ('n1', 't1', 'x', 1, 'a', 'a')")
+        db.close()
+    }
+
     private companion object {
         const val TEST_DB = "migration-test.db"
+        const val TEST_DB_V3 = "migration-test-v3.db"
     }
 }
