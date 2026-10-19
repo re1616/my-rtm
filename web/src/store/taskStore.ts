@@ -5,6 +5,7 @@
 // the card, a hotkey, another tab, the server — shows up everywhere after one refreshData().
 import { create } from 'zustand';
 import type { Task, TaskList, TaskLocation, AppView, SortField, Session } from '../types';
+import type { AccountSettings } from '../api/client';
 import type { SyncState, SyncRejection } from '../features/sync/SyncService';
 
 export type ListTab = 'open' | 'completed';
@@ -55,6 +56,8 @@ interface AppStore {
   snapshotLoaded: number | null;
   /** A new app version is installed and waits for the user's go-ahead (WEB-S8). */
   updateReady: boolean;
+  /** Language, theme, time zone, reminder defaults (null until loaded). */
+  prefs: AccountSettings | null;
 
   // Actions
   setData: (d: {
@@ -86,6 +89,7 @@ interface AppStore {
   setRejections: (r: SyncRejection[]) => void;
   setSnapshotLoaded: (n: number | null) => void;
   setUpdateReady: (ready: boolean) => void;
+  setPrefs: (p: AccountSettings) => void;
 }
 
 const store = create<AppStore>()((set) => ({
@@ -113,6 +117,7 @@ const store = create<AppStore>()((set) => ({
   rejections: [],
   snapshotLoaded: null,
   updateReady: false,
+  prefs: null,
 
   setData: ({ allTasks, lists, tagNames, locations, noteCounts, attachmentCounts }) =>
     set({ allTasks, lists, tagNames, locations, noteCounts: noteCounts ?? {}, attachmentCounts: attachmentCounts ?? {} }),
@@ -142,6 +147,7 @@ const store = create<AppStore>()((set) => ({
   setRejections: (rejections) => set({ rejections }),
   setSnapshotLoaded: (snapshotLoaded) => set({ snapshotLoaded }),
   setUpdateReady: (updateReady) => set({ updateReady }),
+  setPrefs: (prefs) => set({ prefs }),
 }));
 
 export default store;

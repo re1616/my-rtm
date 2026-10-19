@@ -1,6 +1,7 @@
 // WEB-S5 in a real browser: one sync leader per browser, handover when it closes, and server
 // changes pushed over the WebSocket reach the other tabs.
 import { test, expect, type Page } from '@playwright/test';
+import { skipOnboarding } from './helpers';
 
 const API = process.env.TASKLY_API ?? 'http://localhost:8080';
 
@@ -9,6 +10,7 @@ const isLeader = (p: Page) => p.evaluate(() => (window as unknown as SyncDebug).
 
 async function open(page: Page) {
   await page.goto('/');
+  await skipOnboarding(page);
   await page.waitForFunction(() => (window as unknown as SyncDebug).__tasklySync !== undefined);
 }
 

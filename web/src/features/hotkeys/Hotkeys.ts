@@ -11,6 +11,7 @@ import {
   targetIds,
 } from '../tasks/actions';
 import { undoLast } from '../undo/undo';
+import { msg } from '../../i18n/i18n';
 
 export interface Shortcut {
   keys: string;
@@ -19,24 +20,24 @@ export interface Shortcut {
 
 /** Shown by "?" — the same table as SPEC 4.3. */
 export const SHORTCUTS: Shortcut[] = [
-  { keys: 'T', description: 'Новая задача (фокус в Smart Add)' },
-  { keys: 'C', description: 'Выполнить выделенные (на выполненных — вернуть в работу)' },
-  { keys: 'P', description: 'Отложить на день' },
-  { keys: '1 2 3 4', description: 'Приоритет 1 / 2 / 3 / без приоритета' },
-  { keys: 'D', description: 'Срок' },
-  { keys: 'S', description: 'Добавить теги' },
-  { keys: 'R', description: 'Переименовать' },
-  { keys: 'F', description: 'Повтор' },
-  { keys: 'M', description: 'Переместить в список' },
-  { keys: 'J / K', description: 'Следующая / предыдущая задача' },
-  { keys: 'I', description: 'Выделить / снять выделение' },
-  { keys: 'A / N', description: 'Выделить все / ничего' },
-  { keys: 'Enter', description: 'Открыть карточку задачи' },
-  { keys: '/', description: 'Поиск' },
-  { keys: 'Ctrl+Z', description: 'Отменить последнее действие' },
-  { keys: 'Delete', description: 'Удалить' },
-  { keys: 'Esc', description: 'Закрыть карточку / снять выделение' },
-  { keys: '?', description: 'Эта шпаргалка' },
+  { keys: 'T', description: msg('Новая задача (фокус в Smart Add)') },
+  { keys: 'C', description: msg('Выполнить выделенные (на выполненных — вернуть в работу)') },
+  { keys: 'P', description: msg('Отложить на день') },
+  { keys: '1 2 3 4', description: msg('Приоритет 1 / 2 / 3 / без приоритета') },
+  { keys: 'D', description: msg('Срок') },
+  { keys: 'S', description: msg('Добавить теги') },
+  { keys: 'R', description: msg('Переименовать') },
+  { keys: 'F', description: msg('Повтор') },
+  { keys: 'M', description: msg('Переместить в список') },
+  { keys: 'J / K', description: msg('Следующая / предыдущая задача') },
+  { keys: 'I', description: msg('Выделить / снять выделение') },
+  { keys: 'A / N', description: msg('Выделить все / ничего') },
+  { keys: 'Enter', description: msg('Открыть карточку задачи') },
+  { keys: '/', description: msg('Поиск') },
+  { keys: 'Ctrl+Z', description: msg('Отменить последнее действие') },
+  { keys: 'Delete', description: msg('Удалить') },
+  { keys: 'Esc', description: msg('Закрыть карточку / снять выделение') },
+  { keys: '?', description: msg('Эта шпаргалка') },
 ];
 
 export function isTypingTarget(el: Element | null): boolean {

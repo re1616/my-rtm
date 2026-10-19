@@ -7,6 +7,7 @@ import { checkQuery, runQuery } from '../query/smartQuery';
 import { createSmartList } from '../../entities/taskRepository';
 import { refreshData } from '../app/data';
 import { navigate } from '../sidebar/Sidebar';
+import { msg, t } from '../../i18n/i18n';
 
 type FieldId =
   | 'list' | 'tag' | 'priority' | 'due' | 'dueBefore' | 'dueWithin' | 'completed' | 'isRepeating'
@@ -21,35 +22,35 @@ interface FieldDef {
 }
 
 const YES_NO = () => [
-  { value: 'true', label: 'да' },
-  { value: 'false', label: 'нет' },
+  { value: 'true', label: msg('да') },
+  { value: 'false', label: msg('нет') },
 ];
 
 const FIELDS: FieldDef[] = [
-  { id: 'list', label: 'Список', options: (c) => c.lists.map((v) => ({ value: v, label: v })) },
-  { id: 'tag', label: 'Тег', options: (c) => c.tags.map((v) => ({ value: v, label: '#' + v })) },
-  { id: 'priority', label: 'Приоритет', options: () => ['1', '2', '3', 'none'].map((v) => ({ value: v, label: v === 'none' ? 'нет' : v })) },
+  { id: 'list', label: msg('Список'), options: (c) => c.lists.map((v) => ({ value: v, label: v })) },
+  { id: 'tag', label: msg('Тег'), options: (c) => c.tags.map((v) => ({ value: v, label: '#' + v })) },
+  { id: 'priority', label: msg('Приоритет'), options: () => ['1', '2', '3', 'none'].map((v) => ({ value: v, label: v === 'none' ? msg('нет') : v })) },
   {
     id: 'due',
-    label: 'Срок',
+    label: msg('Срок'),
     options: () => [
-      { value: 'today', label: 'сегодня' },
-      { value: 'tomorrow', label: 'завтра' },
-      { value: 'overdue', label: 'просрочено' },
-      { value: 'this week', label: 'на этой неделе' },
-      { value: 'next week', label: 'на следующей неделе' },
+      { value: 'today', label: msg('сегодня') },
+      { value: 'tomorrow', label: msg('завтра') },
+      { value: 'overdue', label: msg('просрочено') },
+      { value: 'this week', label: msg('на этой неделе') },
+      { value: 'next week', label: msg('на следующей неделе') },
     ],
   },
-  { id: 'dueBefore', label: 'Срок до', placeholder: 'tomorrow, 2026-12-31, 2 weeks' },
-  { id: 'dueWithin', label: 'Срок в пределах', placeholder: '1 week, 3 days' },
-  { id: 'completed', label: 'Выполнена', options: YES_NO },
-  { id: 'isRepeating', label: 'Повторяется', options: YES_NO },
-  { id: 'hasSubtasks', label: 'Есть подзадачи', options: YES_NO },
-  { id: 'location', label: 'Место', options: (c) => c.locations.map((v) => ({ value: v, label: v })) },
-  { id: 'addedWithin', label: 'Добавлена за', placeholder: '1 week, 30 days' },
-  { id: 'postponed', label: 'Отложена раз', placeholder: '>2' },
-  { id: 'timeEstimate', label: 'Оценка', placeholder: '<1 hour, >30 minutes' },
-  { id: 'text', label: 'Текст в названии', placeholder: 'слово' },
+  { id: 'dueBefore', label: msg('Срок до'), placeholder: 'tomorrow, 2026-12-31, 2 weeks' },
+  { id: 'dueWithin', label: msg('Срок в пределах'), placeholder: '1 week, 3 days' },
+  { id: 'completed', label: msg('Выполнена'), options: YES_NO },
+  { id: 'isRepeating', label: msg('Повторяется'), options: YES_NO },
+  { id: 'hasSubtasks', label: msg('Есть подзадачи'), options: YES_NO },
+  { id: 'location', label: msg('Место'), options: (c) => c.locations.map((v) => ({ value: v, label: v })) },
+  { id: 'addedWithin', label: msg('Добавлена за'), placeholder: '1 week, 30 days' },
+  { id: 'postponed', label: msg('Отложена раз'), placeholder: '>2' },
+  { id: 'timeEstimate', label: msg('Оценка'), placeholder: '<1 hour, >30 minutes' },
+  { id: 'text', label: msg('Текст в названии'), placeholder: msg('слово') },
 ];
 
 interface Condition {
@@ -112,8 +113,8 @@ const SmartListBuilder: React.FC = () => {
 
   async function save() {
     setSaveError(null);
-    if (!name.trim()) return setSaveError('Введите название');
-    if (!query.trim()) return setSaveError('Запрос пустой');
+    if (!name.trim()) return setSaveError(t('Введите название'));
+    if (!query.trim()) return setSaveError(t('Запрос пустой'));
     if (problem) return setSaveError(problem.message);
     const list = await createSmartList(name.trim(), query.trim());
     await refreshData();
@@ -123,11 +124,11 @@ const SmartListBuilder: React.FC = () => {
   const pos = problem?.position;
 
   return (
-    <section className="smart-builder" aria-label="Умный список">
-      <h2 className="smart-builder-title">Новый умный список</h2>
+    <section className="smart-builder" aria-label={t('Умный список')}>
+      <h2 className="smart-builder-title">{t('Новый умный список')}</h2>
 
       <label className="smart-builder-label" htmlFor="smart-query">
-        Запрос
+        {t('Запрос')}
       </label>
       <div className="smart-builder-query">
         <input
@@ -138,7 +139,7 @@ const SmartListBuilder: React.FC = () => {
           autoComplete="off"
           aria-invalid={!!problem}
           aria-describedby="smart-query-status"
-          placeholder='tag:работа AND (priority:1 OR due:today) AND NOT completed:true'
+          placeholder={t('tag:работа AND (priority:1 OR due:today) AND NOT completed:true')}
           onChange={(e) => setQuery(e.target.value)}
         />
         {problem && pos !== undefined && pos >= 0 && (
@@ -149,16 +150,16 @@ const SmartListBuilder: React.FC = () => {
         )}
       </div>
       <p id="smart-query-status" className={problem ? 'smart-builder-error' : 'smart-builder-ok'} role={problem ? 'alert' : 'status'}>
-        {problem ? `Ошибка: ${problem.message}` : query.trim() ? `Подходит задач: ${matches.length}` : 'Операторы AND, OR, NOT, скобки; поля — в конструкторе ниже.'}
+        {problem ? t('Ошибка: {message}', { message: problem.message }) : query.trim() ? t('Подходит задач: {n}', { n: matches.length }) : t('Операторы AND, OR, NOT, скобки; поля — в конструкторе ниже.')}
       </p>
 
       <fieldset className="smart-builder-conditions">
-        <legend>Конструктор</legend>
-        <div className="smart-builder-join" role="radiogroup" aria-label="Как объединять условия">
+        <legend>{t('Конструктор')}</legend>
+        <div className="smart-builder-join" role="radiogroup" aria-label={t('Как объединять условия')}>
           {(['AND', 'OR'] as const).map((j) => (
             <label key={j}>
               <input type="radio" name="join" checked={join === j} onChange={() => { setJoin(j); applyBuilder(conditions, j); }} />
-              {j === 'AND' ? 'все условия' : 'любое условие'}
+              {j === 'AND' ? t('все условия') : t('любое условие')}
             </label>
           ))}
         </div>
@@ -169,47 +170,47 @@ const SmartListBuilder: React.FC = () => {
           return (
             <div key={i} className="smart-builder-row">
               <label className="smart-builder-not">
-                <input type="checkbox" checked={c.not} onChange={(e) => update({ not: e.target.checked })} /> не
+                <input type="checkbox" checked={c.not} onChange={(e) => update({ not: e.target.checked })} /> {t('не')}
               </label>
-              <select aria-label={`Поле условия ${i + 1}`} value={c.field} onChange={(e) => update({ field: e.target.value as FieldId, value: '' })}>
+              <select aria-label={t('Поле условия {n}', { n: i + 1 })} value={c.field} onChange={(e) => update({ field: e.target.value as FieldId, value: '' })}>
                 {FIELDS.map((f) => (
                   <option key={f.id} value={f.id}>
-                    {f.label}
+                    {t(f.label)}
                   </option>
                 ))}
               </select>
               {opts ? (
-                <select aria-label={`Значение условия ${i + 1}`} value={c.value} onChange={(e) => update({ value: e.target.value })}>
+                <select aria-label={t('Значение условия {n}', { n: i + 1 })} value={c.value} onChange={(e) => update({ value: e.target.value })}>
                   <option value="">—</option>
                   {opts.map((o) => (
                     <option key={o.value} value={o.value}>
-                      {o.label}
+                      {t(o.label)}
                     </option>
                   ))}
                 </select>
               ) : (
-                <input aria-label={`Значение условия ${i + 1}`} value={c.value} placeholder={def.placeholder} onChange={(e) => update({ value: e.target.value })} />
+                <input aria-label={t('Значение условия {n}', { n: i + 1 })} value={c.value} placeholder={def.placeholder ? t(def.placeholder) : undefined} onChange={(e) => update({ value: e.target.value })} />
               )}
-              <button type="button" className="smart-builder-remove" aria-label={`Убрать условие ${i + 1}`} onClick={() => applyBuilder(conditions.filter((_, j) => j !== i))}>
+              <button type="button" className="smart-builder-remove" aria-label={t('Убрать условие {n}', { n: i + 1 })} onClick={() => applyBuilder(conditions.filter((_, j) => j !== i))}>
                 ×
               </button>
             </div>
           );
         })}
         <button type="button" className="smart-builder-add" onClick={() => setConditions([...conditions, { field: 'priority', value: '', not: false }])}>
-          + Условие
+          {t('+ Условие')}
         </button>
       </fieldset>
 
       {matches.length > 0 && (
-        <div className="smart-builder-preview" aria-label="Предпросмотр">
-          <h3>Предпросмотр</h3>
+        <div className="smart-builder-preview" aria-label={t('Предпросмотр')}>
+          <h3>{t('Предпросмотр')}</h3>
           <ul>
             {matches.slice(0, 20).map((t) => (
               <li key={t.id}>{t.name}</li>
             ))}
           </ul>
-          {matches.length > 20 && <p>…и ещё {matches.length - 20}</p>}
+          {matches.length > 20 && <p>{t('…и ещё {n}', { n: matches.length - 20 })}</p>}
         </div>
       )}
 
@@ -220,9 +221,9 @@ const SmartListBuilder: React.FC = () => {
           void save();
         }}
       >
-        <input aria-label="Название умного списка" placeholder="Название" value={name} onChange={(e) => setName(e.target.value)} />
+        <input aria-label={t('Название умного списка')} placeholder={t('Название')} value={name} onChange={(e) => setName(e.target.value)} />
         <button type="submit" className="smart-builder-save-btn">
-          Сохранить умный список
+          {t('Сохранить умный список')}
         </button>
         {saveError && <span className="smart-builder-error" role="alert">{saveError}</span>}
       </form>

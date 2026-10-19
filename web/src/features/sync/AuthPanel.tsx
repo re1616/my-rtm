@@ -14,15 +14,16 @@ import {
   setSession,
 } from '../../api/client';
 import { clearRejections, requestSync, type SyncState } from './SyncService';
+import { msg, t } from '../../i18n/i18n';
 
 const STATE_LABEL: Record<SyncState, string> = {
-  idle: 'Синхронизировано',
-  offline: 'Офлайн — изменения в очереди',
-  unauthenticated: 'Требуется вход',
-  error: 'Ошибка синхронизации',
+  idle: msg('Синхронизировано'),
+  offline: msg('Офлайн — изменения в очереди'),
+  unauthenticated: msg('Требуется вход'),
+  error: msg('Ошибка синхронизации'),
 };
 
-const ENTITY_LABEL: Record<string, string> = { task: 'задача', list: 'список', tag: 'тег', location: 'место' };
+const ENTITY_LABEL: Record<string, string> = { task: msg('задача'), list: msg('список'), tag: msg('тег'), location: msg('место'), note: msg('заметка'), attachment: msg('вложение') };
 
 type Mode = 'login' | 'totp' | 'forgot' | 'forgot-sent' | 'reset' | 'reset-done';
 
@@ -33,7 +34,7 @@ function resetTokenFromUrl(): string | null {
 }
 
 function describe(e: unknown, fallback: string): string {
-  if (e instanceof NetworkError) return 'Сервер недоступен';
+  if (e instanceof NetworkError) return t('Сервер недоступен');
   if (e instanceof ApiError) return e.message;
   return fallback;
 }
@@ -78,27 +79,27 @@ const AuthPanel: React.FC = () => {
     requestSync();
   }
 
-  const submitLogin = () => run(async () => signedIn(await login({}, email, password)), 'Не удалось войти');
-  const submitRegister = () => run(async () => signedIn(await register({}, email, password)), 'Не удалось зарегистрироваться');
+  const submitLogin = () => run(async () => signedIn(await login({}, email, password)), t('Не удалось войти'));
+  const submitRegister = () => run(async () => signedIn(await register({}, email, password)), t('Не удалось зарегистрироваться'));
   const submitCode = () =>
     run(async () => {
       const s = pendingGoogleToken
         ? await loginWithGoogle({}, pendingGoogleToken, code)
         : await login({}, email, password, code);
       await signedIn(s);
-    }, 'Неверный код');
+    }, t('Неверный код'));
   const submitForgot = () =>
     run(async () => {
       await forgotPassword({}, email);
       setMode('forgot-sent');
-    }, 'Не удалось отправить письмо');
+    }, t('Не удалось отправить письмо'));
   const submitReset = () =>
     run(async () => {
       await resetPassword({}, resetToken ?? '', password);
       setPassword('');
       window.history.replaceState(null, '', '/');
       setMode('reset-done');
-    }, 'Ссылка недействительна или устарела');
+    }, t('Ссылка недействительна или устарела'));
 
   // Google Identity Services button (shown only when a client id is configured)
   const googleButton = useRef<HTMLDivElement>(null);
@@ -114,7 +115,7 @@ const AuthPanel: React.FC = () => {
           if (e instanceof ApiError && e.code === 'totp_required') setPendingGoogleToken(credential);
           throw e;
         }
-      }, 'Не удалось войти через Google');
+      }, t('Не удалось войти через Google'));
     loadGoogleIdentity().then((google) => {
       google.accounts.id.initialize({ client_id: googleClientId, callback: (r: { credential: string }) => void onCredential(r.credential) });
       google.accounts.id.renderButton(target, { theme: 'outline', size: 'medium', text: 'signin_with' });
@@ -133,31 +134,31 @@ const AuthPanel: React.FC = () => {
   if (session && mode !== 'reset') {
     return (
       <div className="auth-panel">
-        <div className="auth-panel-user" title={session.email}>{session.email ?? 'Аккаунт'}</div>
+        <div className="auth-panel-user" title={session.email}>{session.email ?? t('Аккаунт')}</div>
         <div className={`auth-panel-state auth-panel-state--${syncState}`}>
-          {snapshotLoaded !== null ? `Загрузка данных… ${snapshotLoaded}` : STATE_LABEL[syncState]}
+          {snapshotLoaded !== null ? t('Загрузка данных… {n}', { n: snapshotLoaded }) : t(STATE_LABEL[syncState])}
         </div>
         {rejections.length > 0 && (
           <div className="auth-panel-error" role="alert">
-            Сервер отклонил изменений: {rejections.length}. Они отменены на этом устройстве.
+            {t('Сервер отклонил изменений: {n}. Они отменены на этом устройстве.', { n: rejections.length })}
             <ul className="auth-panel-rejections">
               {rejections.slice(0, 3).map((r) => (
                 <li key={`${r.entityId}-${r.at}`}>
-                  {ENTITY_LABEL[r.entity] ?? r.entity}: {r.reason}
+                  {ENTITY_LABEL[r.entity] ? t(ENTITY_LABEL[r.entity]) : r.entity}: {r.reason}
                 </li>
               ))}
             </ul>
             <button className="auth-panel-btn auth-panel-btn--ghost" onClick={() => void clearRejections()}>
-              Понятно
+              {t('Понятно')}
             </button>
           </div>
         )}
         <div className="auth-panel-actions">
           <button className="auth-panel-btn" onClick={() => requestSync()}>
-            Синхронизировать
+            {t('Синхронизировать')}
           </button>
           <button className="auth-panel-btn auth-panel-btn--ghost" onClick={() => void logout()}>
-            Выйти
+            {t('Выйти')}
           </button>
         </div>
       </div>
@@ -180,10 +181,10 @@ const AuthPanel: React.FC = () => {
   if (mode === 'reset') {
     return (
       <form className="auth-panel" onSubmit={(e) => { e.preventDefault(); void submitReset(); }}>
-        <div className="auth-panel-state">Новый пароль (не короче 8 символов)</div>
-        {field('password', 'новый пароль', password, setPassword, 'new-password')}
+        <div className="auth-panel-state">{t('Новый пароль (не короче 8 символов)')}</div>
+        {field('password', t('новый пароль'), password, setPassword, 'new-password')}
         {errorLine}
-        <button className="auth-panel-btn" type="submit" disabled={busy || password.length < 8}>Сохранить пароль</button>
+        <button className="auth-panel-btn" type="submit" disabled={busy || password.length < 8}>{t('Сохранить пароль')}</button>
       </form>
     );
   }
@@ -191,7 +192,7 @@ const AuthPanel: React.FC = () => {
   if (mode === 'totp') {
     return (
       <form className="auth-panel" onSubmit={(e) => { e.preventDefault(); void submitCode(); }}>
-        <div className="auth-panel-state">Введите код из приложения-аутентификатора</div>
+        <div className="auth-panel-state">{t('Введите код из приложения-аутентификатора')}</div>
         <input
           className="auth-panel-input"
           inputMode="numeric"
@@ -204,9 +205,9 @@ const AuthPanel: React.FC = () => {
         />
         {errorLine}
         <div className="auth-panel-actions">
-          <button className="auth-panel-btn" type="submit" disabled={busy || code.length !== 6}>Войти</button>
+          <button className="auth-panel-btn" type="submit" disabled={busy || code.length !== 6}>{t('Войти')}</button>
           <button className="auth-panel-btn auth-panel-btn--ghost" type="button" onClick={() => { setMode('login'); setCode(''); setPendingGoogleToken(null); }}>
-            Назад
+            {t('Назад')}
           </button>
         </div>
       </form>
@@ -217,18 +218,18 @@ const AuthPanel: React.FC = () => {
     return (
       <form className="auth-panel" onSubmit={(e) => { e.preventDefault(); void submitForgot(); }}>
         {mode === 'forgot-sent' ? (
-          <div className="auth-panel-state">Если этот адрес зарегистрирован, мы отправили на него ссылку для сброса пароля.</div>
+          <div className="auth-panel-state">{t('Если этот адрес зарегистрирован, мы отправили на него ссылку для сброса пароля.')}</div>
         ) : (
           <>
-            <div className="auth-panel-state">Пришлём ссылку для сброса пароля</div>
+            <div className="auth-panel-state">{t('Пришлём ссылку для сброса пароля')}</div>
             {field('email', 'email', email, setEmail, 'email')}
           </>
         )}
         {errorLine}
         <div className="auth-panel-actions">
-          {mode === 'forgot' && <button className="auth-panel-btn" type="submit" disabled={busy}>Отправить</button>}
+          {mode === 'forgot' && <button className="auth-panel-btn" type="submit" disabled={busy}>{t('Отправить')}</button>}
           <button className="auth-panel-btn auth-panel-btn--ghost" type="button" onClick={() => setMode('login')}>
-            Ко входу
+            {t('Ко входу')}
           </button>
         </div>
       </form>
@@ -238,19 +239,19 @@ const AuthPanel: React.FC = () => {
   return (
     <form className="auth-panel" onSubmit={(e) => { e.preventDefault(); void submitLogin(); }}>
       <div className="auth-panel-state">
-        {mode === 'reset-done' ? 'Пароль изменён — войдите с новым паролем' : 'Войдите, чтобы синхронизировать задачи'}
+        {mode === 'reset-done' ? t('Пароль изменён — войдите с новым паролем') : t('Войдите, чтобы синхронизировать задачи')}
       </div>
       {field('email', 'email', email, setEmail, 'email')}
-      {field('password', 'пароль', password, setPassword, 'current-password')}
+      {field('password', t('пароль'), password, setPassword, 'current-password')}
       {errorLine}
       <div className="auth-panel-actions">
-        <button className="auth-panel-btn" type="submit" disabled={busy}>Войти</button>
+        <button className="auth-panel-btn" type="submit" disabled={busy}>{t('Войти')}</button>
         <button className="auth-panel-btn auth-panel-btn--ghost" type="button" disabled={busy} onClick={() => void submitRegister()}>
-          Регистрация
+          {t('Регистрация')}
         </button>
       </div>
       <button className="auth-panel-link" type="button" onClick={() => setMode('forgot')}>
-        Забыли пароль?
+        {t('Забыли пароль?')}
       </button>
       {googleClientId && <div className="auth-panel-google" ref={googleButton} />}
     </form>

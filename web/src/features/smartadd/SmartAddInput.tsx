@@ -6,6 +6,7 @@ import { useStore } from 'zustand';
 import { parseSmartAdd } from './parser';
 import type { SmartAddResult, SmartAddToken } from '../../types';
 import store from '../../store/taskStore';
+import { msg, t } from '../../i18n/i18n';
 
 interface SmartAddProps {
   onSubmit: (result: SmartAddResult) => void | Promise<unknown>;
@@ -18,17 +19,17 @@ interface SmartAddProps {
 }
 
 const TOKEN_LABEL: Record<SmartAddToken['type'], string> = {
-  text: 'текст',
-  dueDate: 'срок',
-  startDate: 'начало',
-  priority: 'приоритет',
-  list: 'список',
-  tag: 'тег',
-  repeat: 'повтор',
-  location: 'место',
-  estimate: 'оценка',
-  contact: 'контакт',
-  note: 'заметка',
+  text: msg('текст'),
+  dueDate: msg('срок'),
+  startDate: msg('начало'),
+  priority: msg('приоритет'),
+  list: msg('список'),
+  tag: msg('тег'),
+  repeat: msg('повтор'),
+  location: msg('место'),
+  estimate: msg('оценка'),
+  contact: msg('контакт'),
+  note: msg('заметка'),
 };
 
 function renderHighlighted(input: string, tokens: SmartAddToken[]): React.ReactNode[] {
@@ -183,7 +184,7 @@ const SmartAddInput: React.FC<SmartAddProps> = ({ onSubmit, placeholder, label, 
             ref={inputRef}
             type="text"
             className={`smartadd-input${primary ? ' smartadd-input--primary' : ''}`}
-            aria-label={label ?? 'Новая задача'}
+            aria-label={label ?? t('Новая задача')}
             role="combobox"
             aria-expanded={suggestions.length > 0}
             aria-controls={listboxId}
@@ -199,7 +200,7 @@ const SmartAddInput: React.FC<SmartAddProps> = ({ onSubmit, placeholder, label, 
             onKeyDown={onKeyDown}
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
-            placeholder={placeholder ?? 'Новая задача: ^завтра #список !1 *каждую неделю @место =30 мин'}
+            placeholder={placeholder ?? t('Новая задача: ^завтра #список !1 *каждую неделю @место =30 мин')}
             autoComplete="off"
             spellCheck={false}
           />
@@ -219,7 +220,7 @@ const SmartAddInput: React.FC<SmartAddProps> = ({ onSubmit, placeholder, label, 
                 accept(s);
               }}
             >
-              <span className="smartadd-suggestion-kind">{s.kind === 'list' ? 'список' : s.kind === 'tag' ? 'тег' : 'место'}</span>
+              <span className="smartadd-suggestion-kind">{s.kind === 'list' ? t('список') : s.kind === 'tag' ? t('тег') : t('место')}</span>
               {s.value}
             </li>
           ))}
@@ -227,9 +228,9 @@ const SmartAddInput: React.FC<SmartAddProps> = ({ onSubmit, placeholder, label, 
       )}
       {parsed && parsed.tokens.length > 0 && (
         <div className="smartadd-preview" aria-live="polite">
-          {parsed.tokens.map((t, i) => (
-            <span key={i} className={`smartadd-chip smartadd-chip--${t.type}`} title={TOKEN_LABEL[t.type]}>
-              <span className="smartadd-chip-kind">{TOKEN_LABEL[t.type]}</span> {t.value}
+          {parsed.tokens.map((tok, i) => (
+            <span key={i} className={`smartadd-chip smartadd-chip--${tok.type}`} title={t(TOKEN_LABEL[tok.type])}>
+              <span className="smartadd-chip-kind">{t(TOKEN_LABEL[tok.type])}</span> {tok.value}
             </span>
           ))}
         </div>

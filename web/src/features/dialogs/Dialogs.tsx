@@ -18,16 +18,17 @@ import { INBOX_ID, createSmartList } from '../../entities/taskRepository';
 import { refreshData } from '../app/data';
 import { SHORTCUTS } from '../hotkeys/Hotkeys';
 import { checkQuery } from '../query/smartQuery';
+import { intlLocale, msg, t } from '../../i18n/i18n';
 
 const TITLES: Record<DialogKind, string> = {
-  shortcuts: 'Горячие клавиши',
-  move: 'Переместить в список',
-  tags: 'Добавить теги',
-  untag: 'Убрать теги',
-  due: 'Срок',
-  rename: 'Переименовать',
-  repeat: 'Повтор',
-  'smart-save': 'Сохранить как умный список',
+  shortcuts: msg('Горячие клавиши'),
+  move: msg('Переместить в список'),
+  tags: msg('Добавить теги'),
+  untag: msg('Убрать теги'),
+  due: msg('Срок'),
+  rename: msg('Переименовать'),
+  repeat: msg('Повтор'),
+  'smart-save': msg('Сохранить как умный список'),
 };
 
 const Dialogs: React.FC = () => {
@@ -37,7 +38,7 @@ const Dialogs: React.FC = () => {
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => e.target === e.currentTarget && close()}>
       <div className="dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title" onKeyDown={(e) => e.key === 'Escape' && close()}>
-        <h3 id="dialog-title" className="dialog-title">{TITLES[dialog]}</h3>
+        <h3 id="dialog-title" className="dialog-title">{t(TITLES[dialog])}</h3>
         {dialog === 'shortcuts' ? <ShortcutHelp onClose={close} /> : dialog === 'move' ? <MovePicker onClose={close} /> : <TextPrompt kind={dialog} onClose={close} />}
       </div>
     </div>
@@ -56,13 +57,13 @@ const ShortcutHelp: React.FC<{ onClose: () => void }> = ({ onClose }) => {
               <td>
                 <kbd>{s.keys}</kbd>
               </td>
-              <td>{s.description}</td>
+              <td>{t(s.description)}</td>
             </tr>
           ))}
         </tbody>
       </table>
       <div className="dialog-actions">
-        <button ref={ref} className="dialog-btn" onClick={onClose}>Закрыть</button>
+        <button ref={ref} className="dialog-btn" onClick={onClose}>{t('Закрыть')}</button>
       </div>
     </>
   );
@@ -74,7 +75,7 @@ const MovePicker: React.FC<{ onClose: () => void }> = ({ onClose }) => {
   const [filter, setFilter] = useState('');
   const [active, setActive] = useState(0);
   const options = useMemo(() => {
-    const all = [{ id: INBOX_ID, name: 'Входящие' }, ...lists.filter((l) => !l.isSystem && !l.isSmart).map((l) => ({ id: l.id, name: l.name }))];
+    const all = [{ id: INBOX_ID, name: t('Входящие') }, ...lists.filter((l) => !l.isSystem && !l.isSmart).map((l) => ({ id: l.id, name: l.name }))];
     const f = filter.trim().toLowerCase();
     return f ? all.filter((o) => o.name.toLowerCase().includes(f)) : all;
   }, [lists, filter]);
@@ -88,7 +89,7 @@ const MovePicker: React.FC<{ onClose: () => void }> = ({ onClose }) => {
     <>
       <input
         className="dialog-input"
-        aria-label="Найти список"
+        aria-label={t('Найти список')}
         autoFocus
         value={filter}
         onChange={(e) => {
@@ -108,24 +109,24 @@ const MovePicker: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           }
         }}
       />
-      <ul className="dialog-options" role="listbox" aria-label="Списки">
+      <ul className="dialog-options" role="listbox" aria-label={t('Списки')}>
         {options.map((o, i) => (
           <li key={o.id} role="option" aria-selected={i === active} className={`dialog-option${i === active ? ' dialog-option--active' : ''}`} onMouseDown={() => void choose(o.id)}>
             {o.name}
           </li>
         ))}
-        {options.length === 0 && <li className="dialog-option dialog-option--empty">Нет такого списка</li>}
+        {options.length === 0 && <li className="dialog-option dialog-option--empty">{t('Нет такого списка')}</li>}
       </ul>
     </>
   );
 };
 
 const HINTS: Partial<Record<DialogKind, string>> = {
-  due: 'Например: завтра 17:00, пт, 25 дек, через 3 дня. Пусто — без срока.',
-  repeat: 'Например: каждую неделю, every 2 days, after 1 week. Пусто — без повтора.',
-  tags: 'Через пробел или запятую: звонки, дом',
-  untag: 'Через пробел или запятую',
-  'smart-save': 'Название, под которым запрос появится в сайдбаре',
+  due: msg('Например: завтра 17:00, пт, 25 дек, через 3 дня. Пусто — без срока.'),
+  repeat: msg('Например: каждую неделю, every 2 days, after 1 week. Пусто — без повтора.'),
+  tags: msg('Через пробел или запятую: звонки, дом'),
+  untag: msg('Через пробел или запятую'),
+  'smart-save': msg('Название, под которым запрос появится в сайдбаре'),
 };
 
 const TextPrompt: React.FC<{ kind: DialogKind; onClose: () => void }> = ({ kind, onClose }) => {
@@ -142,9 +143,9 @@ const TextPrompt: React.FC<{ kind: DialogKind; onClose: () => void }> = ({ kind,
   const preview = useMemo(() => {
     if (kind === 'due' && value.trim()) {
       const d = parseDue(value);
-      return d?.dueDate ? new Date(d.dueDate).toLocaleString(undefined, d.dueHasTime ? undefined : { dateStyle: 'medium' }) : 'не распознано';
+      return d?.dueDate ? new Date(d.dueDate).toLocaleString(intlLocale(), d.dueHasTime ? undefined : { dateStyle: 'medium' }) : t('не распознано');
     }
-    if (kind === 'repeat' && value.trim()) return parseRepeat(value)?.repeatRule ?? 'не распознано';
+    if (kind === 'repeat' && value.trim()) return parseRepeat(value)?.repeatRule ?? t('не распознано');
     return null;
   }, [kind, value]);
 
@@ -155,12 +156,12 @@ const TextPrompt: React.FC<{ kind: DialogKind; onClose: () => void }> = ({ kind,
     const ids = targetIds();
     switch (kind) {
       case 'due':
-        if (!parseDue(value)) return setError('Не удалось распознать дату');
+        if (!parseDue(value)) return setError(t('Не удалось распознать дату'));
         onClose();
         await setDueTargets(value, ids);
         return;
       case 'repeat':
-        if (!parseRepeat(value)) return setError('Не удалось распознать повтор');
+        if (!parseRepeat(value)) return setError(t('Не удалось распознать повтор'));
         onClose();
         await setRepeatTargets(value, ids);
         return;
@@ -178,7 +179,7 @@ const TextPrompt: React.FC<{ kind: DialogKind; onClose: () => void }> = ({ kind,
         return;
       case 'smart-save': {
         const view = store.getState().currentView;
-        if (view.kind !== 'search' || !value.trim()) return setError('Введите название');
+        if (view.kind !== 'search' || !value.trim()) return setError(t('Введите название'));
         const problem = checkQuery(view.query);
         if (problem) return setError(problem.message);
         onClose();
@@ -199,7 +200,7 @@ const TextPrompt: React.FC<{ kind: DialogKind; onClose: () => void }> = ({ kind,
     >
       <input
         className="dialog-input"
-        aria-label={TITLES[kind]}
+        aria-label={t(TITLES[kind])}
         autoFocus
         list={kind === 'tags' || kind === 'untag' ? 'dialog-tag-options' : undefined}
         value={value}
@@ -215,12 +216,12 @@ const TextPrompt: React.FC<{ kind: DialogKind; onClose: () => void }> = ({ kind,
           ))}
         </datalist>
       )}
-      {HINTS[kind] && <p className="dialog-hint">{HINTS[kind]}</p>}
+      {HINTS[kind] && <p className="dialog-hint">{t(HINTS[kind]!)}</p>}
       {preview && <p className="dialog-preview" aria-live="polite">→ {preview}</p>}
       {error && <p className="dialog-error" role="alert">{error}</p>}
       <div className="dialog-actions">
-        <button type="button" className="dialog-btn dialog-btn--ghost" onClick={onClose}>Отмена</button>
-        <button type="submit" className="dialog-btn">Готово</button>
+        <button type="button" className="dialog-btn dialog-btn--ghost" onClick={onClose}>{t('Отмена')}</button>
+        <button type="submit" className="dialog-btn">{t('Готово')}</button>
       </div>
     </form>
   );

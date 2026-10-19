@@ -27,6 +27,8 @@ export default defineConfig({
       injectRegister: false,
       workbox: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff2}'],
+        // Web Push: notifications with actions (public/push-sw.js)
+        importScripts: ['push-sw.js'],
       },
     }),
   ],

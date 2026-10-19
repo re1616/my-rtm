@@ -196,6 +196,34 @@ object AuthService {
             .execute()
     }
 
+    /**
+     * Deletes the account and all its data (SPEC 6.1 "экспорт/удаление данных").
+     * Needs the password (or, for Google-only accounts, the email typed again) and the
+     * TOTP code when two-factor authentication is on.
+     */
+    fun deleteAccount(userId: String, password: String?, confirmEmail: String?, totpCode: String?) {
+        val id = UUID.fromString(userId)
+        Database.ctx().transaction { config ->
+            val tx = DSL.using(config)
+            val user = tx.selectFrom(UsersTable.TABLE).where(UsersTable.ID.eq(id)).forUpdate().fetchOne()
+                ?: throw NotFoundException("User not found")
+            val hash = user.get(UsersTable.PASSWORD_HASH)
+            if (hash != null) {
+                if (password.isNullOrEmpty() || !Password.check(password, hash).withArgon2()) {
+                    throw UnauthorizedException("Wrong password", "password_invalid")
+                }
+            } else if (!confirmEmail.equals(user.get(UsersTable.EMAIL), ignoreCase = true)) {
+                throw IllegalArgumentException("Type your email to confirm")
+            }
+            requireSecondFactor(user, totpCode)
+            tx.deleteFrom(com.taskly.server.db.ChangeLogTable.TABLE)
+                .where(com.taskly.server.db.ChangeLogTable.SCOPE_ID.eq("user:$id"))
+                .execute()
+            // Everything else is removed by ON DELETE CASCADE (tasks, lists, tags, notes, tokens, …)
+            tx.deleteFrom(UsersTable.TABLE).where(UsersTable.ID.eq(id)).execute()
+        }
+    }
+
     fun account(userId: String): AccountResponse {
         val user = Database.ctx().selectFrom(UsersTable.TABLE).where(UsersTable.ID.eq(UUID.fromString(userId))).fetchOne()
             ?: throw NotFoundException("User not found")

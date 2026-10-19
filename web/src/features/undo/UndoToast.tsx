@@ -3,6 +3,7 @@ import React from 'react';
 import { useStore } from 'zustand';
 import store from '../../store/taskStore';
 import { dismissUndo, undoLast } from './undo';
+import { t } from '../../i18n/i18n';
 
 const UndoToast: React.FC = () => {
   const toast = useStore(store, (s) => s.toast);
@@ -11,9 +12,9 @@ const UndoToast: React.FC = () => {
     <div className="undo-toast" role="status" aria-live="polite">
       <span>{toast.label}</span>
       <button type="button" className="undo-toast-btn" onClick={() => void undoLast()}>
-        Отменить <kbd>Ctrl+Z</kbd>
+        {t('Отменить')} <kbd>Ctrl+Z</kbd>
       </button>
-      <button type="button" className="undo-toast-close" aria-label="Скрыть" onClick={dismissUndo}>
+      <button type="button" className="undo-toast-close" aria-label={t('Скрыть')} onClick={dismissUndo}>
         ×
       </button>
     </div>
