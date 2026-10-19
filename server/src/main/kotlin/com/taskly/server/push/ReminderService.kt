@@ -74,7 +74,7 @@ object ReminderService {
             for (fireAt in fireTimes(row, settings)) {
                 if (fireAt.isAfter(now) || fireAt.isBefore(now.minus(GRACE))) continue
                 if (settings.pushReminders && claim(row.get(TasksTable.ID), fireAt, "push")) {
-                    pushes += sendPush(owner, row)
+                    pushes += sendPush(owner, row, settings.locale)
                 }
                 if (settings.emailReminders && claim(row.get(TasksTable.ID), fireAt, "email")) {
                     Mailer.send(Email(user.get(UsersTable.EMAIL), "Напоминание: ${row.get(TasksTable.NAME)}", reminderText(row, settings)))
@@ -110,13 +110,14 @@ object ReminderService {
             .onConflictDoNothing()
             .execute() > 0
 
-    private fun sendPush(owner: UUID, task: Record): Int {
+    private fun sendPush(owner: UUID, task: Record, locale: String): Int {
         val sender = WebPush.sender ?: return 0
         val subs = Database.ctx().selectFrom(PushSubscriptionsTable.TABLE).where(PushSubscriptionsTable.USER_ID.eq(owner)).fetch()
         val payload = buildJsonObject {
             put("type", "reminder")
             put("taskId", task.get(TasksTable.ID).toString())
             put("title", task.get(TasksTable.NAME))
+            put("locale", locale)
             put("dueAt", task.get(TasksTable.DUE_AT)?.format(DateTimeFormatter.ISO_OFFSET_DATE_TIME))
             put("dueHasTime", task.get(TasksTable.DUE_HAS_TIME))
         }.toString()

@@ -5,13 +5,13 @@ import store from '../../store/taskStore';
 import { navigate } from '../sidebar/Sidebar';
 import { checkQuery } from '../query/smartQuery';
 import { requestSync } from '../sync/SyncService';
-import { t } from '../../i18n/i18n';
+import { msg, t } from '../../i18n/i18n';
 
 const SYNC_TEXT: Record<string, string> = {
-  idle: 'Синхронизировано',
-  offline: 'Офлайн',
-  unauthenticated: 'Без синхронизации',
-  error: 'Ошибка синхронизации',
+  idle: msg('Синхронизировано'),
+  offline: msg('Офлайн'),
+  unauthenticated: msg('Без синхронизации'),
+  error: msg('Ошибка синхронизации'),
 };
 
 const TopBar: React.FC = () => {

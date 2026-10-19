@@ -3,6 +3,7 @@ import React, { useEffect, useState } from 'react';
 import { useStore } from 'zustand';
 import store from '../../store/taskStore';
 import { ApiError, NetworkError, disableTotp, enableTotp, getAccount, setupTotp, type Account } from '../../api/client';
+import { t } from '../../i18n/i18n';
 
 const SecuritySettings: React.FC = () => {
   const session = useStore(store, (s) => s.session);
@@ -17,8 +18,8 @@ const SecuritySettings: React.FC = () => {
     getAccount({}, session).then(setAccount).catch(() => setAccount(null));
   }, [session]);
 
-  if (!session) return <span className="settings-stub-hint">Войдите, чтобы настроить двухфакторную аутентификацию</span>;
-  if (!account) return <span className="settings-stub-hint">Загрузка…</span>;
+  if (!session) return <span className="settings-stub-hint">{t('Войдите, чтобы настроить двухфакторную аутентификацию')}</span>;
+  if (!account) return <span className="settings-stub-hint">{t('Загрузка…')}</span>;
 
   async function act(fn: () => Promise<void>) {
     setBusy(true);
@@ -26,7 +27,7 @@ const SecuritySettings: React.FC = () => {
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof NetworkError ? 'Сервер недоступен' : e instanceof ApiError ? e.message : 'Ошибка');
+      setError(e instanceof NetworkError ? t('Сервер недоступен') : e instanceof ApiError ? e.message : t('Ошибка'));
     } finally {
       setBusy(false);
     }
@@ -37,7 +38,7 @@ const SecuritySettings: React.FC = () => {
       className="settings-input"
       inputMode="numeric"
       autoComplete="one-time-code"
-      placeholder="Код из приложения"
+      placeholder={t('Код из приложения')}
       maxLength={6}
       value={code}
       onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
@@ -49,7 +50,7 @@ const SecuritySettings: React.FC = () => {
       <div className="settings-security">
         <div className="settings-row">
           <span className="settings-row-label">2FA</span>
-          <span className="settings-row-value">Включена</span>
+          <span className="settings-row-value">{t('Включена')}</span>
         </div>
         {codeInput}
         <button
@@ -61,7 +62,7 @@ const SecuritySettings: React.FC = () => {
             setAccount({ ...account, totpEnabled: false });
           })}
         >
-          Отключить
+          {t('Отключить')}
         </button>
         {error && <div className="settings-error" role="alert">{error}</div>}
       </div>
@@ -72,16 +73,16 @@ const SecuritySettings: React.FC = () => {
     <div className="settings-security">
       {!setup ? (
         <button className="settings-btn" disabled={busy} onClick={() => act(async () => setSetup(await setupTotp({}, session)))}>
-          Включить 2FA
+          {t('Включить 2FA')}
         </button>
       ) : (
         <>
           <p className="settings-stub-hint">
-            Добавьте аккаунт в приложение-аутентификатор (Google Authenticator, 1Password, Aegis): по ссылке
-            или вручную по ключу, затем введите код из приложения.
+            {t('Добавьте аккаунт в приложение-аутентификатор (Google Authenticator, 1Password, Aegis): по ссылке')}
+            {t('или вручную по ключу, затем введите код из приложения.')}
           </p>
-          <a className="settings-link" href={setup.otpauthUri}>Открыть в приложении</a>
-          <code className="settings-secret" aria-label="Ключ для ручного ввода">{setup.secret}</code>
+          <a className="settings-link" href={setup.otpauthUri}>{t('Открыть в приложении')}</a>
+          <code className="settings-secret" aria-label={t('Ключ для ручного ввода')}>{setup.secret}</code>
           {codeInput}
           <button
             className="settings-btn"
@@ -93,7 +94,7 @@ const SecuritySettings: React.FC = () => {
               setAccount({ ...account, totpEnabled: true });
             })}
           >
-            Подтвердить
+            {t('Подтвердить')}
           </button>
         </>
       )}

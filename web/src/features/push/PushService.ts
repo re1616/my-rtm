@@ -1,138 +1,100 @@
-// Taskly Web — Push Service (scaffold)
-// Web Push notification — Service Worker registration + push handling scaffold
-// In R2 this will integrate with the server's Web Push API (VAPID)
+// Taskly Web — browser notifications (WEB-F8).
+// The service worker is registered by the PWA plugin (main.tsx); here the user's browser is
+// subscribed to Web Push with the server's VAPID key, and notification buttons are handled.
+import { getVapidKey, subscribePush, testPush, unsubscribePush, type ApiDeps } from '../../api/client';
+import { completeTask, getTaskById, updateTask } from '../../entities/taskRepository';
+import { refreshData } from '../app/data';
+import store from '../../store/taskStore';
 
-export interface PushServiceState {
-  supported: boolean;
-  subscribed: boolean;
-  registration: ServiceWorkerRegistration | null;
-  subscription: PushSubscription | null;
-}
+export type PushStatus = 'unsupported' | 'denied' | 'off' | 'on';
 
-let state: PushServiceState = {
-  supported: false,
-  subscribed: false,
-  registration: null,
-  subscription: null,
-};
-
-/**
- * Check if Push API is available in this browser.
- */
 export function isPushSupported(): boolean {
-  return 'PushManager' in window && 'serviceWorker' in navigator;
+  return typeof window !== 'undefined' && 'PushManager' in window && 'serviceWorker' in navigator && 'Notification' in window;
 }
 
-/**
- * Get current push service state without initializing.
- */
-export function getPushState(): PushServiceState {
-  return { ...state };
+function urlBase64ToBytes(base64: string): Uint8Array<ArrayBuffer> {
+  const padded = (base64 + '='.repeat((4 - (base64.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');
+  const raw = atob(padded);
+  const out = new Uint8Array(new ArrayBuffer(raw.length));
+  for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
+  return out;
 }
 
-/**
- * Register the service worker and set up push notifications.
- * Returns true if registration succeeded (or was already registered).
- */
-export async function registerPush(): Promise<boolean> {
-  if (!isPushSupported()) {
-    state.supported = false;
-    return false;
+async function registration(): Promise<ServiceWorkerRegistration> {
+  return navigator.serviceWorker.ready;
+}
+
+export async function pushStatus(): Promise<PushStatus> {
+  if (!isPushSupported()) return 'unsupported';
+  if (Notification.permission === 'denied') return 'denied';
+  const sub = await (await registration()).pushManager.getSubscription();
+  return sub && Notification.permission === 'granted' ? 'on' : 'off';
+}
+
+/** Asks for permission and subscribes this browser for the signed-in account. */
+export async function enablePush(deps: ApiDeps = {}): Promise<PushStatus> {
+  if (!isPushSupported()) return 'unsupported';
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') return permission === 'denied' ? 'denied' : 'off';
+  const { publicKey } = await getVapidKey(deps);
+  const reg = await registration();
+  const sub =
+    (await reg.pushManager.getSubscription()) ??
+    (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: urlBase64ToBytes(publicKey) }));
+  const json = sub.toJSON() as { endpoint: string; keys: { p256dh: string; auth: string } };
+  await subscribePush({ endpoint: json.endpoint, keys: json.keys }, deps);
+  return 'on';
+}
+
+export async function disablePush(deps: ApiDeps = {}): Promise<PushStatus> {
+  if (!isPushSupported()) return 'unsupported';
+  const sub = await (await registration()).pushManager.getSubscription();
+  if (sub) {
+    await unsubscribePush(sub.endpoint, deps).catch(() => undefined);
+    await sub.unsubscribe();
   }
+  return 'off';
+}
 
-  state.supported = true;
+export async function sendTestPush(deps: ApiDeps = {}): Promise<number> {
+  return (await testPush(deps)).sent;
+}
 
-  try {
-    const registration = await navigator.serviceWorker.register('/sw.js', {
-      scope: '/',
+/**
+ * Buttons of a reminder (SPEC FR-17): "Выполнить", "Отложить на 1 ч", or a click that opens
+ * the task. Applied locally first and synced like any other change.
+ */
+export async function handleNotificationAction(taskId: string, action: string): Promise<void> {
+  const task = await getTaskById(taskId);
+  if (!task) return;
+  if (action === 'complete') {
+    await completeTask(taskId);
+  } else if (action === 'snooze') {
+    const base = Math.max(Date.now(), task.dueDate ? new Date(task.dueDate).getTime() : 0);
+    await updateTask(taskId, {
+      dueDate: new Date(base + 3_600_000).toISOString(),
+      dueHasTime: true,
+      postponedCount: (task.postponedCount ?? 0) + 1,
     });
-    state.registration = registration;
-
-    // Check if already subscribed
-    const existingSubscription = await registration.pushManager.getSubscription();
-    if (existingSubscription) {
-      state.subscribed = true;
-      state.subscription = existingSubscription;
-    }
-
-    return true;
-  } catch (err) {
-    console.error('Push registration failed:', err);
-    return false;
+  } else {
+    store.getState().openTask(taskId);
   }
+  await refreshData();
 }
 
-/**
- * Subscribe to push notifications.
- * In production, the subscription endpoint + keys would come from the server (VAPID).
- */
-export async function subscribePush(
-  publicKey?: string,
-): Promise<PushSubscription | null> {
-  if (!state.registration) {
-    const ok = await registerPush();
-    if (!ok) return null;
+/** Notification clicks: a message from the service worker, or the start URL (?task=…&action=…). */
+export function installNotificationHandlers(): () => void {
+  const params = new URLSearchParams(window.location.search);
+  const taskId = params.get('task');
+  if (taskId) {
+    void handleNotificationAction(taskId, params.get('action') ?? 'open');
+    window.history.replaceState(null, '', window.location.pathname);
   }
-
-  try {
-    const subscription = await state.registration!.pushManager.subscribe({
-      userVisibleOnly: true,
-      applicationServerKey: publicKey
-        ? (urlBase64ToUint8Array(publicKey) as unknown as string)
-        : undefined,
-    });
-    state.subscribed = true;
-    state.subscription = subscription;
-
-    // In production: send subscription to server
-    // await fetch('/api/push/subscribe', { method: 'POST', body: JSON.stringify(subscription) });
-
-    return subscription;
-  } catch (err) {
-    console.error('Push subscribe failed:', err);
-    return null;
-  }
+  if (!('serviceWorker' in navigator)) return () => {};
+  const onMessage = (e: MessageEvent) => {
+    const d = e.data as { type?: string; taskId?: string; action?: string };
+    if (d?.type === 'taskly-notification' && d.taskId) void handleNotificationAction(d.taskId, d.action ?? 'open');
+  };
+  navigator.serviceWorker.addEventListener('message', onMessage);
+  return () => navigator.serviceWorker.removeEventListener('message', onMessage);
 }
-
-/**
- * Unsubscribe from push notifications.
- */
-export async function unsubscribePush(): Promise<boolean> {
-  if (!state.subscription) return false;
-
-  try {
-    await state.subscription.unsubscribe();
-    state.subscribed = false;
-    state.subscription = null;
-
-    // In production: notify server
-    // await fetch('/api/push/unsubscribe', { method: 'POST' });
-
-    return true;
-  } catch (err) {
-    console.error('Push unsubscribe failed:', err);
-    return false;
-  }
-}
-
-/**
- * Handle an incoming push event (called from service worker message handler).
- */
-export function handlePushEvent(data: unknown): void {
-  // In production: parse payload, show notification, update UI
-  console.log('Push event received:', data);
-}
-
-/**
- * Utility: convert base64-encoded VAPID public key to Uint8Array.
- */
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding)
-    .replace(/-/g, '+')
-    .replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  return Uint8Array.from(rawData.split('').map((ch) => ch.charCodeAt(0)));
-}
-
-export default { registerPush, subscribePush, unsubscribePush, getPushState, isPushSupported };

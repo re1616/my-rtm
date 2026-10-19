@@ -74,3 +74,6 @@ export function formatDate(d: Date, opts: Intl.DateTimeFormatOptions = { dateSty
 export function formatDateTime(d: Date, opts: Intl.DateTimeFormatOptions = { dateStyle: 'medium', timeStyle: 'short' }): string {
   return d.toLocaleString(intlLocale(), opts);
 }
+
+/** Marks a Russian string in a constant table for the catalog; translate it with t() when shown. */
+export const msg = (ru: string): string => ru;

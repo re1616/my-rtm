@@ -4,6 +4,7 @@
 // an idempotent sync operation is appended to the queue. The sync engine
 // (features/sync/SyncService) sends the queue to the server in order.
 import { getDb } from '../db/database';
+import { t } from '../i18n/i18n';
 import type {
   Task,
   Priority,
@@ -431,7 +432,7 @@ export function isSafeLink(url: string): boolean {
 
 export async function addAttachment(taskId: string, url: string, name?: string): Promise<TaskAttachment> {
   const trimmed = url.trim();
-  if (!isSafeLink(trimmed)) throw new Error('Только ссылки http(s)');
+  if (!isSafeLink(trimmed)) throw new Error(t('Только ссылки http(s)'));
   const db = getDb();
   const att: TaskAttachment = { id: uuid(), taskId, url: trimmed, name: name?.trim() || trimmed, createdAt: new Date().toISOString() };
   await db.transaction('rw', [db.attachments, db.syncQueue], async () => {

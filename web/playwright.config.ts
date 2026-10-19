@@ -10,6 +10,8 @@ export default defineConfig({
   reporter: [['list'], ['github'], ['junit', { outputFile: 'playwright-junit.xml' }]],
   use: {
     baseURL: 'http://localhost:4173',
+    // The scenarios are written in Russian; a fresh profile picks the UI language from the browser
+    locale: 'ru-RU',
     trace: 'retain-on-failure',
     // Local runs may point at a preinstalled Chromium of another revision (CI installs its own)
     ...(process.env.PW_CHROMIUM_PATH ? { launchOptions: { executablePath: process.env.PW_CHROMIUM_PATH } } : {}),

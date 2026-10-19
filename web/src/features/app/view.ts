@@ -3,16 +3,16 @@ import type { AppView, Task, TaskList, TaskLocation } from '../../types';
 import { inView, sortTasks, INBOX_ID } from '../../entities/taskRepository';
 import { checkQuery, runQuery } from '../query/smartQuery';
 import type { ListTab } from '../../store/taskStore';
-import { t } from '../../i18n/i18n';
+import { msg, t } from '../../i18n/i18n';
 
 export const SYSTEM_VIEWS: { view: Extract<AppView, { kind: 'system' }>['view']; label: string; icon: string }[] = [
-  { view: 'inbox', label: 'Входящие', icon: '📥' },
-  { view: 'today', label: 'Сегодня', icon: '☀️' },
-  { view: 'tomorrow', label: 'Завтра', icon: '🌅' },
-  { view: 'week', label: 'На этой неделе', icon: '📆' },
-  { view: 'overdue', label: 'Просрочено', icon: '⏰' },
-  { view: 'all', label: 'Все задачи', icon: '📋' },
-  { view: 'completed', label: 'Выполненные', icon: '✅' },
+  { view: 'inbox', label: msg('Входящие'), icon: '📥' },
+  { view: 'today', label: msg('Сегодня'), icon: '☀️' },
+  { view: 'tomorrow', label: msg('Завтра'), icon: '🌅' },
+  { view: 'week', label: msg('На этой неделе'), icon: '📆' },
+  { view: 'overdue', label: msg('Просрочено'), icon: '⏰' },
+  { view: 'all', label: msg('Все задачи'), icon: '📋' },
+  { view: 'completed', label: msg('Выполненные'), icon: '✅' },
 ];
 
 export interface ViewInput {

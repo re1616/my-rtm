@@ -151,7 +151,7 @@ class RemindersIntegrationTest {
     }
 
     @Test
-    fun `a date-only task is reminded at the configured time of day; push off means no push`() = testApplication {
+    fun `a date-only task is reminded at the configured time of day and push can be switched off`() = testApplication {
         application { moduleForTest() }
         val u = client.register("dayonly")
         val now = Instant.now().atOffset(ZoneOffset.UTC)

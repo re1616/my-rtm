@@ -193,3 +193,52 @@ export async function refreshSession(deps: ApiDeps, session: Session): Promise<S
     throw e;
   }
 }
+/** Calls the API as the signed-in user, refreshing the access token once on 401. */
+export async function authedCall<T>(deps: ApiDeps, method: string, path: string, body?: unknown): Promise<T> {
+  const session = await getSession();
+  if (!session) throw new ApiError(401, 'Not signed in');
+  try {
+    return await apiRequest<T>(deps, method, path, body, session.accessToken);
+  } catch (e) {
+    if (!(e instanceof ApiError) || e.status !== 401) throw e;
+    const next = await refreshSession(deps, session);
+    if (!next) throw e;
+    return apiRequest<T>(deps, method, path, body, next.accessToken);
+  }
+}
+
+// ── Account settings, export, deletion (WEB-F9) ──
+
+/** Mirrors the server's AccountSettings. */
+export interface AccountSettings {
+  timeZone: string;
+  locale: 'ru' | 'en';
+  theme: 'system' | 'light' | 'dark';
+  reminderOffsets: number[];
+  reminderDayTime: string;
+  pushReminders: boolean;
+  emailReminders: boolean;
+  digestEnabled: boolean;
+  digestTime: string;
+  weekStart: 1 | 7;
+  onboarded: boolean;
+}
+
+export const getAccountSettings = (deps: ApiDeps = {}) => authedCall<AccountSettings>(deps, 'GET', '/v1/account/settings');
+export const patchAccountSettings = (patch: Partial<AccountSettings>, deps: ApiDeps = {}) =>
+  authedCall<AccountSettings>(deps, 'PATCH', '/v1/account/settings', patch);
+export const exportAccount = (deps: ApiDeps = {}) => authedCall<unknown>(deps, 'GET', '/v1/account/export');
+export async function deleteAccount(body: { password?: string; confirmEmail?: string; totpCode?: string }, deps: ApiDeps = {}): Promise<void> {
+  await authedCall(deps, 'DELETE', '/v1/account', body);
+}
+
+// ── Web Push (WEB-F8) ──
+
+export const getVapidKey = (deps: ApiDeps = {}) => apiRequest<{ publicKey: string }>(deps, 'GET', '/v1/push/vapid-key');
+export async function subscribePush(sub: { endpoint: string; keys: { p256dh: string; auth: string } }, deps: ApiDeps = {}): Promise<void> {
+  await authedCall(deps, 'POST', '/v1/push/subscriptions', sub);
+}
+export async function unsubscribePush(endpoint: string, deps: ApiDeps = {}): Promise<void> {
+  await authedCall(deps, 'DELETE', '/v1/push/subscriptions', { endpoint });
+}
+export const testPush = (deps: ApiDeps = {}) => authedCall<{ sent: number }>(deps, 'POST', '/v1/push/test', {});

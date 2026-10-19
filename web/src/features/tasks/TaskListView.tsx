@@ -12,13 +12,13 @@ import { deleteList, updateList } from '../../entities/taskRepository';
 import { refreshData } from '../app/data';
 import { checkQuery } from '../query/smartQuery';
 import type { SortField } from '../../types';
-import { t } from '../../i18n/i18n';
+import { msg, t } from '../../i18n/i18n';
 
 const SORTS: { field: SortField; label: string }[] = [
-  { field: 'createdAt', label: 'Добавлены' },
-  { field: 'priority', label: 'Приоритет' },
-  { field: 'dueDate', label: 'Срок' },
-  { field: 'name', label: 'Название' },
+  { field: 'createdAt', label: msg('Добавлены') },
+  { field: 'priority', label: msg('Приоритет') },
+  { field: 'dueDate', label: msg('Срок') },
+  { field: 'name', label: msg('Название') },
 ];
 
 const TaskListView: React.FC = () => {

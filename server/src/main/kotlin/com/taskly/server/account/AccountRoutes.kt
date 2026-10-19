@@ -107,7 +107,9 @@ fun Route.accountRoutes() {
         val payload = buildJsonObject {
             put("type", "test")
             put("title", "Taskly")
-            put("body", "Уведомления работают")
+            val locale = AccountService.settings(userId.toString()).locale
+            put("body", if (locale == "en") "Notifications work" else "Уведомления работают")
+            put("locale", locale)
         }.toString()
         var sent = 0
         for (s in subs) {

@@ -15,6 +15,8 @@ import { dismissUndo } from '../features/undo/undo';
 async function resetDb() {
   const db = getDb();
   await Promise.all([db.tasks, db.lists, db.tags, db.syncQueue, db.settings, db.notes, db.attachments, db.locations].map((t) => t.clear()));
+  // These scenarios start after the first-run introduction (covered in settingsUi.test.tsx)
+  await db.settings.put({ key: 'prefs', value: JSON.stringify({ onboarded: true, locale: 'ru' }) });
 }
 
 function resetStore() {
@@ -119,12 +121,18 @@ describe('keyboard and mass actions (WEB-F4)', () => {
     const user = await renderApp();
     await screen.findByText('Первая');
     await user.keyboard('j');
-    expect(rowNamed('Первая')).toHaveAttribute('aria-current', 'true');
+    // Both tasks were created in the same millisecond, so the order is not fixed: use the row under the pointer
+    const pointed = await waitFor(() => {
+      const r = rows().find((el) => el.getAttribute('aria-current') === 'true');
+      expect(r).toBeDefined();
+      return r!;
+    });
+    const name = pointed.querySelector('.task-row-name')!.textContent!;
     await user.keyboard('c');
-    await waitFor(() => expect(rowNamed('Первая')).toBeUndefined());
+    await waitFor(() => expect(rowNamed(name)).toBeUndefined());
     expect(screen.getByText('Выполнено: 1 задача')).toBeInTheDocument();
     await user.keyboard('{Control>}z{/Control}');
-    await waitFor(() => expect(rowNamed('Первая')).toBeDefined());
+    await waitFor(() => expect(rowNamed(name)).toBeDefined());
   });
 
   it('priority keys, select all, delete and undo the deletion', async () => {
@@ -133,7 +141,7 @@ describe('keyboard and mass actions (WEB-F4)', () => {
     const user = await renderApp();
     await screen.findByText('A');
     await user.keyboard('j2');
-    await waitFor(() => expect(rowNamed('A')).toHaveClass('task-row--priority-2'));
+    await waitFor(() => expect(rows().filter((r) => r.classList.contains('task-row--priority-2'))).toHaveLength(1));
 
     await user.keyboard('a');
     expect(screen.getByRole('toolbar', { name: 'Действия с выбранными задачами' })).toHaveTextContent('Выбрано: 2');

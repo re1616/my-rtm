@@ -1,6 +1,7 @@
 // WEB-F1/F4 in a real browser, keyboard only (SPEC 4.4 scenarios 1–2, MVP criterion
 // "every action from the hotkey table works without a mouse"), plus an axe accessibility scan.
 import { test, expect, type Page } from '@playwright/test';
+import { skipOnboarding } from './helpers';
 import AxeBuilder from '@axe-core/playwright';
 
 const rows = (page: Page) => page.locator('.task-list-rows [role="listitem"]');
@@ -8,7 +9,8 @@ const row = (page: Page, name: string) => rows(page).filter({ hasText: name });
 
 async function open(page: Page) {
   await page.goto('/');
-  await expect(page.getByRole('navigation', { name: 'Навигация' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Навигация' })).toBeVisible({ timeout: 15_000 });
+  await skipOnboarding(page);
 }
 
 test('quick add and inbox triage without the mouse', async ({ page }) => {

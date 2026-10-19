@@ -24,6 +24,7 @@ import { backoffDelay } from './backoff';
 import { SyncLeadership, type SyncMessage } from './leader';
 import { connectRealtime, realtimeUrl } from './realtime';
 import { defaultBaseUrl } from '../../api/client';
+import { syncPrefs } from '../settings/prefs';
 
 const MAX_BATCH = 500;
 const CURSOR_KEY = 'syncCursor';
@@ -797,6 +798,8 @@ export async function syncNow(deps: ApiDeps = {}): Promise<SyncState> {
     const session = await getSession();
     if (session) await resolveServerInbox(deps, session);
     await pullChanges(deps);
+    // Account settings (language, reminders…) changed on another device or offline here
+    await syncPrefs(deps).catch(() => undefined);
     return 'idle';
   } catch (e) {
     if (e instanceof NetworkError) return 'offline';

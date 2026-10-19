@@ -14,27 +14,35 @@ import UpdateBanner from './features/sync/UpdateBanner';
 import store from './store/taskStore';
 import { initializeDb } from './db/database';
 import { refreshData, installViewRecompute } from './features/app/data';
-import { registerPush } from './features/push/PushService';
+import { installNotificationHandlers } from './features/push/PushService';
+import { loadPrefs } from './features/settings/prefs';
 import { initHotkeys, destroyHotkeys } from './features/hotkeys/Hotkeys';
+import { t } from './i18n/i18n';
 
 const App: React.FC = () => {
   const view = useStore(store, (s) => s.currentView);
   const openTaskId = useStore(store, (s) => s.openTaskId);
+  // Re-render everything when the language changes
+  const locale = useStore(store, (s) => s.prefs?.locale ?? 'ru');
   const [ready, setReady] = useState(false);
 
   useEffect(() => {
     let alive = true;
     (async () => {
       await initializeDb();
+      const prefs = await loadPrefs();
       installViewRecompute();
       await refreshData();
-      registerPush().catch(() => {});
       initHotkeys();
+      // First launch: the three onboarding steps (WEB-F11)
+      if (!prefs.onboarded && store.getState().allTasks.length === 0) store.getState().setCurrentView({ kind: 'onboarding' });
       if (alive) setReady(true);
     })();
+    const offNotifications = installNotificationHandlers();
     return () => {
       alive = false;
       destroyHotkeys();
+      offNotifications();
     };
   }, []);
 
@@ -61,7 +69,7 @@ const App: React.FC = () => {
       <div className="app app--loading" aria-busy="true">
         <div className="app-loading">
           <h1>Taskly</h1>
-          <p>Загрузка…</p>
+          <p>{t('Загрузка…')}</p>
         </div>
       </div>
     );
@@ -72,8 +80,8 @@ const App: React.FC = () => {
   const showCard = !!openTaskId && view.kind !== 'settings' && view.kind !== 'onboarding' && view.kind !== 'smart-lists';
 
   return (
-    <div className={`app${showCard ? ' app--has-detail' : ''}`}>
-      <a className="skip-link" href="#main">К списку задач</a>
+    <div key={locale} className={`app${showCard ? ' app--has-detail' : ''}`}>
+      <a className="skip-link" href="#main">{t('К списку задач')}</a>
       <Sidebar />
       <div className="app-column">
         <TopBar />

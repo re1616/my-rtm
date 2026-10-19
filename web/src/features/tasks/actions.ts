@@ -23,6 +23,7 @@ import { offerUndo } from '../undo/undo';
 import { parseSmartAdd } from '../smartadd/parser';
 import type { SmartAddResult } from '../../types';
 import { defaultListFor } from '../app/view';
+import { plural, t, TASKS } from '../../i18n/i18n';
 
 /** Selected tasks, otherwise the task under the pointer, otherwise the open card. */
 export function targetIds(): string[] {
@@ -37,7 +38,7 @@ function tasksById(ids: string[]): Task[] {
   return ids.map((id) => all.get(id)).filter((t): t is Task => !!t);
 }
 
-const plural = (n: number) => (n === 1 ? 'задача' : n < 5 ? 'задачи' : 'задач');
+const count = (n: number) => plural(n, TASKS);
 
 type Fields = Partial<Pick<Task, 'name' | 'listId' | 'priority' | 'dueDate' | 'dueHasTime' | 'repeatRule' | 'repeatMode' | 'postponedCount'>>;
 
@@ -54,7 +55,7 @@ async function updateMany(ids: string[], change: (t: Task) => Fields, label: str
     await updateTask(t.id, fields);
   }
   await refreshData();
-  offerUndo(`${label}: ${before.length} ${plural(before.length)}`, async () => {
+  offerUndo(t('{action}: {tasks}', { action: label, tasks: count(before.length) }), async () => {
     for (const [id, old] of reverts) await updateTask(id, old);
     await refreshData();
   });
@@ -79,8 +80,8 @@ export async function completeTargets(ids = targetIds()): Promise<void> {
   for (const id of toReopen) await uncompleteTask(id);
   store.getState().clearSelection();
   await refreshData();
-  const label = toComplete.length ? 'Выполнено' : 'Снова открыто';
-  offerUndo(`${label}: ${tasks.length} ${plural(tasks.length)}`, async () => {
+  const label = toComplete.length ? t('Выполнено') : t('Снова открыто');
+  offerUndo(t('{action}: {tasks}', { action: label, tasks: count(tasks.length) }), async () => {
     for (const id of toComplete) await uncompleteTask(id);
     for (const id of toReopen) await completeTask(id);
     await refreshData();
@@ -93,7 +94,7 @@ export async function postponeTargets(ids = targetIds()): Promise<void> {
   if (!before.length) return;
   for (const t of before) await postponeTask(t.id);
   await refreshData();
-  offerUndo(`Отложено: ${before.length} ${plural(before.length)}`, async () => {
+  offerUndo(t('{action}: {tasks}', { action: t('Отложено'), tasks: count(before.length) }), async () => {
     for (const t of before) {
       await updateTask(t.id, { dueDate: t.dueDate, dueHasTime: t.dueHasTime, postponedCount: t.postponedCount ?? 0 });
     }
@@ -103,7 +104,7 @@ export async function postponeTargets(ids = targetIds()): Promise<void> {
 
 /** 1/2/3/4: priority; 4 = no priority. */
 export function setPriorityTargets(priority: 1 | 2 | 3 | null, ids = targetIds()): Promise<void> {
-  return updateMany(ids, () => ({ priority }), priority ? `Приоритет ${priority}` : 'Без приоритета');
+  return updateMany(ids, () => ({ priority }), priority ? t('Приоритет {n}', { n: priority }) : t('Без приоритета'));
 }
 
 export async function deleteTargets(ids = targetIds()): Promise<void> {
@@ -114,14 +115,14 @@ export async function deleteTargets(ids = targetIds()): Promise<void> {
   s.clearSelection();
   if (s.openTaskId && ids.includes(s.openTaskId)) s.openTask(null);
   await refreshData();
-  offerUndo(`Удалено: ${tasks.length} ${plural(tasks.length)}`, async () => {
+  offerUndo(t('{action}: {tasks}', { action: t('Удалено'), tasks: count(tasks.length) }), async () => {
     for (const t of tasks) await restoreTask(t.id);
     await refreshData();
   });
 }
 
 export function moveTargets(listId: string, ids = targetIds()): Promise<void> {
-  return updateMany(ids, () => ({ listId }), 'Перемещено');
+  return updateMany(ids, () => ({ listId }), t('Перемещено'));
 }
 
 export async function addTagsTargets(tags: string[], ids = targetIds()): Promise<void> {
@@ -131,7 +132,7 @@ export async function addTagsTargets(tags: string[], ids = targetIds()): Promise
   const added = new Map(before.map((t) => [t.id, clean.filter((x) => !t.tags.includes(x))]));
   for (const t of before) await addTagsToTask(t.id, clean);
   await refreshData();
-  offerUndo(`Теги добавлены: ${before.length} ${plural(before.length)}`, async () => {
+  offerUndo(t('{action}: {tasks}', { action: t('Теги добавлены'), tasks: count(before.length) }), async () => {
     for (const [id, tags2] of added) if (tags2.length) await removeTagsFromTask(id, tags2);
     await refreshData();
   });
@@ -144,7 +145,7 @@ export async function removeTagsTargets(tags: string[], ids = targetIds()): Prom
   const removed = new Map(before.map((t) => [t.id, clean.filter((x) => t.tags.includes(x))]));
   for (const t of before) await removeTagsFromTask(t.id, clean);
   await refreshData();
-  offerUndo('Теги удалены', async () => {
+  offerUndo(t('Теги удалены'), async () => {
     for (const [id, tags2] of removed) if (tags2.length) await addTagsToTask(id, tags2);
     await refreshData();
   });
@@ -168,7 +169,7 @@ export function parseRepeat(text: string): { repeatRule?: string; repeatMode?: T
 export async function setDueTargets(text: string, ids = targetIds()): Promise<boolean> {
   const due = parseDue(text);
   if (!due) return false;
-  await updateMany(ids, () => due, due.dueDate ? 'Срок изменён' : 'Срок снят');
+  await updateMany(ids, () => due, due.dueDate ? t('Срок изменён') : t('Срок снят'));
   return true;
 }
 
@@ -176,7 +177,7 @@ export async function setDueTargets(text: string, ids = targetIds()): Promise<bo
 export async function setRepeatTargets(text: string, ids = targetIds()): Promise<boolean> {
   const rep = parseRepeat(text);
   if (!rep) return false;
-  await updateMany(ids, () => rep, rep.repeatRule ? 'Повтор задан' : 'Повтор снят');
+  await updateMany(ids, () => rep, rep.repeatRule ? t('Повтор задан') : t('Повтор снят'));
   return true;
 }
 
@@ -184,7 +185,7 @@ export async function setRepeatTargets(text: string, ids = targetIds()): Promise
 export async function renameTask(id: string, name: string): Promise<void> {
   const trimmed = name.trim();
   if (!trimmed) return;
-  await updateMany([id], () => ({ name: trimmed }), 'Переименовано');
+  await updateMany([id], () => ({ name: trimmed }), t('Переименовано'));
 }
 
 /**
@@ -200,7 +201,7 @@ export async function createFromSmartAdd(result: SmartAddResult, opts: { parentI
     // Autocomplete writes multi-word names with "_" (Smart Add tokens are single words)
     const list = (await findListByName(result.listName)) ?? (await findListByName(result.listName.replace(/_/g, ' ')));
     if (list) listId = list.id;
-    else if (/^(inbox|входящие)$/i.test(result.listName)) listId = INBOX_ID;
+    else if (/^(inbox|входящие)$/i.test(result.listName)) listId = INBOX_ID; // i18n-ignore: Smart Add keyword
     // "#word" that is not a list is a new tag (SPEC F-2: a list wins only on a match)
     else if (!tags.includes(result.listName)) tags.unshift(result.listName);
   }
@@ -238,7 +239,7 @@ export async function createFromSmartAdd(result: SmartAddResult, opts: { parentI
     note: result.note,
   });
   await refreshData();
-  offerUndo('Задача добавлена', async () => {
+  offerUndo(t('Задача добавлена'), async () => {
     await softDeleteTask(task.id);
     await refreshData();
   });
