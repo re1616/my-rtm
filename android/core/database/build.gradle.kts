@@ -44,10 +44,11 @@ kapt {
     }
 }
 
-// The exported schema is a kapt output: declare it, so a build-cache hit restores the JSON
-// files too (otherwise a cached kapt run leaves a new schema version missing for the tests)
+// Room writes the schema JSON as a side effect of kapt. A build-cache hit would skip it and
+// leave a new schema version missing for MigrationTestHelper, so annotation processing here
+// is never taken from the cache (the module is small).
 tasks.matching { it.name.startsWith("kapt") && it.name.endsWith("Kotlin") }.configureEach {
-    outputs.dir("$projectDir/schemas")
+    outputs.cacheIf { false }
 }
 
 configurations.configureEach {

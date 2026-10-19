@@ -117,6 +117,7 @@ jobs:
           TASKLY_API: http://localhost:8080
           ANDROID_HOME: /usr/local/lib/android/sdk
         run: |
+          set +e # collect both halves' results before deciding
           export QA5_DIR=$(mktemp -d)
           # Build first, so the browser does not wait for Gradle compilation
           ./gradlew :android:core:sync:compileDebugUnitTestKotlin --console=plain > gradle-qa5-build.log 2>&1 || { tail -60 gradle-qa5-build.log; exit 1; }
